@@ -1,0 +1,4 @@
+[IMG] /home/students/cs/2021/alaos002/pintools/memtrace/DataStructuresCode
+[IMG] /lib64/ld-linux-x86-64.so.2
+[IMG] [vdso]
+[IMG] /lib64/libc.so.6
