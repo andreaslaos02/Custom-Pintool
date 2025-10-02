@@ -1,0 +1,25 @@
+# Build & compiler outputs
+*.o
+*.so
+*.a
+*.dll
+*.exe
+*.dylib
+
+# Pin generated traces & logs
+*.out
+*.log
+pinatrace*
+memtrace/*.out
+
+# Build folders
+obj-*/
+build/
+
+# Editor/OS clutter
+.DS_Store
+*.swp
+*.tmp
+
+# Tools & helpers
+memtrace/git-filter-repo
