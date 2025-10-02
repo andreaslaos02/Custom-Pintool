@@ -75,7 +75,7 @@ int main(void) {
         size_t idx = (t * 2654435761u) % N;
         sink += arr[idx];        // READ "τυχαία" στο array
         arr[idx] ^= (int)t;      // WRITE "τυχαία" στο array
-    }
+    } 
 
     // Καθαρισμός
     free_list(head);
@@ -84,4 +84,4 @@ int main(void) {
     // Εκτύπωση κάτι για να μην αφαιρεθούν τα side-effects
     printf("Done. Sink=%ld\n", sink);
     return 0;
-}
+}// ds_demo.c
