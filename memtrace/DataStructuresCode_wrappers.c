@@ -14,7 +14,7 @@ static volatile long sink = 0; // για να μην εξαφανίσει ο com
 Node* make_list(size_t n) {
     Node* head = NULL;
     for (size_t i = 0; i < n; ++i) {
-        Node* node = (Node*)malloc(sizeof(Node));
+        Node* node = (Node*)my_malloc(sizeof(Node));
         node->value = (int)i;
         node->next = head;
         head = node;
@@ -35,7 +35,7 @@ long traverse_list(Node* head) {
 void free_list(Node* head) {
     while (head) {
         Node* nxt = head->next;
-        free(head);        // WRITE/READ σε heap structures
+        my_free(head);        // WRITE/READ σε heap structures
         head = nxt;
     }
 }
@@ -43,7 +43,7 @@ void free_list(Node* head) {
 int main(void) {
     // --- ΔΟΜΗ 1: Δυναμικός πίνακας ---
     const size_t N = 100000;
-    int* arr = (int*)malloc(N * sizeof(int));
+    int* arr = (int*)my_malloc(N * sizeof(int));
 
     // Γεμίζουμε (WRITE) και κάνουμε μερικές αναγνώσεις (READ)
     for (size_t i = 0; i < N; ++i) {
@@ -55,7 +55,7 @@ int main(void) {
 
     // --- ΔΟΜΗ 2: Απλά συνδεδεμένη λίστα ---
     const size_t M = 20000;
-    Node* head = make_list(M);   // malloc ανά κόμβο (heap pointers διάσπαρτοι)
+    Node* head = make_list(M);   // my_malloc ανά κόμβο (heap pointers διάσπαρτοι)
 
     // Διάσχιση λίστας (READ) και λίγο WRITE
     long s = traverse_list(head);
@@ -79,7 +79,7 @@ int main(void) {
 
     // Καθαρισμός
     free_list(head);
-    free(arr);
+    my_free(arr);
 
     // Εκτύπωση κάτι για να μην αφαιρεθούν τα side-effects
     printf("Done. Sink=%ld\n", sink);
