@@ -9,9 +9,9 @@ using std::string;
 
 // ---------- Region map: start -> Region ----------
 struct Region {
-    ADDRINT start;
-    size_t  size;
-    string  tag;
+    ADDRINT start;      //arxiki diefthinsi tou allocation
+    size_t  size;       //megethos allocation se bytes
+    string  tag;        //type of data (π.χ. "Node", "int[]", "DynArr" κλπ)
     bool    freed;   // true αν έχει γίνει free (UAF detection)
     Region() : start(0), size(0), tag("-"), freed(false) {}
 };

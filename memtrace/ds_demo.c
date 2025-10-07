@@ -7,8 +7,8 @@
 /* Macros — caller passes a type tag string literal.
    MT_MALLOC_T("Node", sizeof(Node))
    MT_FREE_T("Node", p) */
-#define MT_MALLOC_T(type_str, sz) \
-({ void* __p = malloc(sz); __memtrace_alloc_site(__p, (sz), (type_str), __func__, __FILE__, __LINE__); __p; })
+#define MT_MALLOC_T(type_str, sz) \     
+({ void* __p = malloc(sz); __memtrace_alloc_site(__p, (sz), (type_str), __func__, __FILE__, __LINE__); __p; })      
 
 #define MT_FREE_T(type_str, p) \
 do { __memtrace_free_site((p), (type_str), __func__, __FILE__, __LINE__); free(p); } while(0)
