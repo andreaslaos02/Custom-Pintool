@@ -39,7 +39,7 @@ static const Region* FindRegion(ADDRINT a)
 {
     auto it = g_regions.upper_bound(a);   // πρώτο start > a
     if (it == g_regions.begin()) return nullptr;
-    --it;                                 // start <= a
+    --it;                                 // start <= a             //check if a is in the region
     const Region& r = it->second;
     if (a >= r.start && a < (r.start + r.size)) return &r;
     return nullptr;

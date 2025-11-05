@@ -14,6 +14,6 @@ void __memtrace_free_site(void* ptr, const char* type_tag, const char* func, con
     (void)ptr; (void)type_tag; (void)func; (void)file; (void)line;
 }
 
-/* Anchor to prevent DCE */
+/* Anchor to prevent DCE 
 __attribute__((used))
-static void* __mt_keep[] = { (void*)&__memtrace_alloc_site, (void*)&__memtrace_free_site };
+static void* __mt_keep[] = { (void*)&__memtrace_alloc_site, (void*)&__memtrace_free_site };*/
