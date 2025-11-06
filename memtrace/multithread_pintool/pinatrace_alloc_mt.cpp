@@ -7,21 +7,21 @@
 
 using std::string;
 
-// ----------------------------- Knobs -----------------------------
+// ----------------------------- Knobs -----------------------------    //gia hooks se malloc/free libc
 KNOB<BOOL> KnobUseLibcHooks(KNOB_MODE_WRITEONCE, "pintool",
     "use_libc_hooks", "0", "Also instrument malloc/calloc/realloc/free in libc.");
 
 // --------------------------- Region map --------------------------
 struct Region {
-    ADDRINT start;
+    ADDRINT start;  //arxiki diefthinsi
     size_t  size;
-    string  tag;
+    string  tag;    
     bool    freed;
     Region() : start(0), size(0), tag("-"), freed(false) {}
 };
 
 // Global region map (keyed by start)
-static std::map<ADDRINT, Region> g_regions;
+static std::map<ADDRINT, Region> g_regions;     //taksinomimeno map kata start
 
 // Locks
 static PIN_LOCK g_regions_lock;  // protects g_regions
@@ -31,7 +31,7 @@ static PIN_LOCK g_events_lock;   // protects events/log global files
 static FILE* logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only)
 
-// Thread-local context: per-thread trace file
+// Thread-local context: per-thread trace file - apothikevonde ta load/store gia kathe thread
 struct ThreadCtx {
     FILE* out = nullptr;  // pinatrace.<pid>.<tid>.out
 };
@@ -43,8 +43,9 @@ static inline ThreadCtx* CTX(THREADID tid) {
 }
 
 // ------------------------- Lookup helper -------------------------
-// Snapshot variant με ίδιο όνομα: γεμίζει το out και επιστρέφει true/false.
-// Το snapshot αποφεύγει να κρατάμε pointer σε δεδομένα του map μετά το unlock.
+// Snapshot variant: γεμίζει το out και επιστρέφει true/false.
+// Το snapshot αποφεύγει να κρατάμε pointer σε δεδομένα του map μετά το unlock για να αποφευγετε η αλλαγη του μετα.
+// Τa records doulevoun me stathera dedomena.
 static bool FindRegion(ADDRINT a, Region &out) {
     bool found = false;
     PIN_GetLock(&g_regions_lock, PIN_ThreadId());
@@ -63,7 +64,7 @@ static bool FindRegion(ADDRINT a, Region &out) {
 
 // --------------------- Record memory accesses --------------------
 static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
-    ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = CTX(tid);       //pernei to arxeio tou thread.
     if (!tc || !tc->out) return; // TLS not ready yet / no file
 
     const ADDRINT a = (ADDRINT)ea;
@@ -71,7 +72,7 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     if (!FindRegion(a, snap)) return;
 
     const size_t off = (size_t)(a - snap.start);
-    if (off >= snap.size) return; // extra guard
+    if (off >= snap.size) return; // extra guard gia to case pou allakse to region meta to unlock.
 
     // per-thread file: δεν κρατάμε global lock εδώ
     // (fprintf μπορεί να καλέσει libc, αλλά δεν κάνουμε hook libc by default)
@@ -95,6 +96,7 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
 }
 
 // ---------------- Instruction instrumentation --------------------
+// callbacks gia kathe entoli me mnhmh prin ektelesti kai mono otan ektelestei pragrmatika mnhmh (predicated)
 static VOID Instruction(INS ins, VOID*) {
     const UINT32 n = INS_MemoryOperandCount(ins);
     for (UINT32 i = 0; i < n; ++i) {
@@ -112,6 +114,10 @@ static VOID Instruction(INS ins, VOID*) {
 }
 
 // --------------- Dummy-site wrappers (your hooks) ----------------
+// These replace __memtrace_alloc_site and __memtrace_free_site
+// called from the instrumented program.
+// They update the region map and log events.
+
 static VOID CallAllocSite(CONTEXT*, AFUNPTR,
                           VOID* ptr, size_t size, const char* type_tag,
                           const char* func, const char* file, int line) {
@@ -119,7 +125,7 @@ static VOID CallAllocSite(CONTEXT*, AFUNPTR,
     const char* tag = type_tag ? type_tag : "?";
 
     // ενημέρωση regions (με lock)
-    PIN_GetLock(&g_regions_lock, PIN_ThreadId());
+    PIN_GetLock(&g_regions_lock, PIN_ThreadId());       //lock se athe enimerwsi tou map
     Region r;
     r.start = (ADDRINT)ptr;
     r.size  = size;
@@ -129,7 +135,7 @@ static VOID CallAllocSite(CONTEXT*, AFUNPTR,
     PIN_ReleaseLock(&g_regions_lock);
 
     // Log + Events (single global files)
-    PIN_GetLock(&g_events_lock, PIN_ThreadId());
+    PIN_GetLock(&g_events_lock, PIN_ThreadId());    //lock se athe enimerwsi twn arxeiwn
     if (logf) {
         fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s)\n",
                 ptr, size, tag, file?file:"?", line, func?func:"?");
@@ -156,7 +162,7 @@ static VOID CallFreeSite(CONTEXT*, AFUNPTR,
     PIN_GetLock(&g_regions_lock, PIN_ThreadId());
     auto it = g_regions.find((ADDRINT)ptr);
     if (it != g_regions.end()) {
-        it->second.freed = true; // δεν αφαιρούμε: UAF detection
+        it->second.freed = true; // oxi diagrafi gia UAF detection
         snap = it->second;
         known = true;
     }
@@ -183,6 +189,8 @@ static VOID CallFreeSite(CONTEXT*, AFUNPTR,
 }
 
 // ----------------- Hook your dummy symbols if present ------------
+// Vriskoume ta __memtrace_alloc_site kai __memtrace_free_site an yparxoun kai kanoume replace me ta dika mas (callAlloc/FreeSite).
+// Scanarei to image gia ta dummy sites.
 static VOID HookDummySites(IMG img) {
     for (SEC s = IMG_SecHead(img); SEC_Valid(s); s = SEC_Next(s)) {
         for (RTN r = SEC_RtnHead(s); RTN_Valid(r); r = RTN_Next(r)) {
@@ -234,6 +242,11 @@ static VOID HookDummySites(IMG img) {
 }
 
 // ----------------- Optional glibc malloc/free hooks --------------
+// otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
+// gia na parakolouthisoume kai auta ta allocations.
+// Ta allocations apo libc exoun tag "heap", "heap:calloc", "heap:realloc" antistoixa.
+// gia na enimerwnete to pinatrace.events arxeio gia ta alloc/free gegonota.
+// se kathe malloc/calloc/realloc/free, enhmerwnoume to g_regions map antistoixa me size, freed=true, start kai tag.
 static VOID AfterMalloc(ADDRINT ret, size_t sz) {
     if (!ret || sz == 0) return;
     PIN_GetLock(&g_regions_lock, PIN_ThreadId());
@@ -297,6 +310,9 @@ static VOID BeforeFree(ADDRINT p) {
     PIN_ReleaseLock(&g_events_lock);
 }
 
+
+//enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
+//katagrafei sto pintool.log to hooking kathe function.
 static VOID HookLibcAllocators(IMG img) {
     if (!KnobUseLibcHooks.Value()) return;
     if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return; // typically libc is shared
@@ -366,12 +382,15 @@ static VOID HookLibcAllocators(IMG img) {
 }
 
 // -------------------------- Image load ---------------------------
+// kanume hook tis routines gia ta dummy sites kai gia ta libc malloc/free an einai energopoihmeno to knob.
 static VOID ImageLoad(IMG img, VOID*) {
     HookDummySites(img);       // your __memtrace_* if present
     HookLibcAllocators(img);   // optional libc hooks (knob)
 }
 
 // ----------------------- Thread lifecycle ------------------------
+// kathe thread dimiourgei to diko tou arxeio trace.
+// ta arxeia einai pinatrace.<pid>.<tid>.out
 static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
     int pid = getpid();
     char path[256];
@@ -385,6 +404,9 @@ static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
     PIN_SetThreadData(g_tls_key, tc, tid);
 }
 
+// kathe thread kleinei to diko tou arxeio trace.
+// apodesmevei to thread-local context.
+// grafei "#eof" sto telos tou arxeiou.
 static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = CTX(tid);
     if (tc) {
@@ -395,12 +417,15 @@ static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
 }
 
 // ----------------------------- Fini ------------------------------
+// Global fini: κλείνει τα global αρχεία log/events
+// και γράφει "#eof" στο events αρχείο.
 static VOID Fini(INT32, VOID*) {
     if (eventsf) { fprintf(eventsf, "#eof\n"); fclose(eventsf); }
     if (logf)    fclose(logf);
 }
 
 // ------------------------------ main -----------------------------
+// dilwnei ta call backs kai arxizei to Pin.
 int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     if (PIN_Init(argc, argv)) return 1;
@@ -420,7 +445,7 @@ int main(int argc, char* argv[]) {
     PIN_AddThreadStartFunction(ThreadStart, 0);
     PIN_AddThreadFiniFunction(ThreadFini, 0);
     PIN_AddFiniFunction(Fini, 0);
-
+    
     PIN_StartProgram(); // never returns
     return 0;
 }
