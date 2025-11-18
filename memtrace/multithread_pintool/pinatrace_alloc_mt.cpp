@@ -33,7 +33,25 @@ static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only)
 
 // Thread-local context: per-thread trace file - apothikevonde ta load/store gia kathe thread
 struct ThreadCtx {
-    FILE* out = nullptr;  // pinatrace.<pid>.<tid>.out
+    FILE* out;  // pinatrace.<pid>.<tid>.out
+
+     // Pending alloc metadata (για __memtrace_alloc_site)
+     bool        hasPendingAlloc;
+     size_t      pendingSize;
+     const char* pendingTypeTag;
+     const char* pendingFunc;
+     const char* pendingFile;
+     int         pendingLine;
+ 
+     ThreadCtx()
+         : out(nullptr),
+           hasPendingAlloc(false),
+           pendingSize(0),
+           pendingTypeTag(nullptr),
+           pendingFunc(nullptr),
+           pendingFile(nullptr),
+           pendingLine(0)
+     {}
 };
 static TLS_KEY g_tls_key;
 
@@ -118,128 +136,234 @@ static VOID Instruction(INS ins, VOID*) {
 // called from the instrumented program.
 // They update the region map and log events.
 
-static VOID CallAllocSite(CONTEXT*, AFUNPTR,
-                          VOID* ptr, size_t size, const char* type_tag,
-                          const char* func, const char* file, int line) {
-    if (!ptr || size == 0) return;
-    const char* tag = type_tag ? type_tag : "?";
+static VOID CallAllocSite(VOID* ptr, size_t size, const char* type_tag,
+    const char* func, const char* file, int line)
+{
+// Χοντροκομμένο debug για να δούμε αν ΠΟΤΕ μπαίνουμε εδώ
+fprintf(stderr, "[Pintool] CallAllocSite: ptr=%p size=%zu tag=%s func=%s file=%s line=%d\n",
+ptr,
+size,
+type_tag ? type_tag : "?",
+func ? func : "?",
+file ? file : "?",
+line);
 
-    // ενημέρωση regions (με lock)
-    PIN_GetLock(&g_regions_lock, PIN_ThreadId());       //lock se athe enimerwsi tou map
-    Region r;
-    r.start = (ADDRINT)ptr;
-    r.size  = size;
-    r.tag   = tag;
-    r.freed = false;
-    g_regions[r.start] = r;
-    PIN_ReleaseLock(&g_regions_lock);
+if (!ptr || size == 0) return;
+const char* tag = type_tag ? type_tag : "?";
 
-    // Log + Events (single global files)
-    PIN_GetLock(&g_events_lock, PIN_ThreadId());    //lock se athe enimerwsi twn arxeiwn
-    if (logf) {
-        fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s)\n",
-                ptr, size, tag, file?file:"?", line, func?func:"?");
-        fflush(logf);
-    }
-    if (eventsf) {
-        fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s)\n",
-                (void*)r.start, r.size, r.tag.c_str(),
-                file?file:"?", line, func?func:"?");
-        fflush(eventsf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
+PIN_GetLock(&g_regions_lock, PIN_ThreadId());
+Region r;
+r.start = (ADDRINT)ptr;
+r.size  = size;
+r.tag   = tag;
+r.freed = false;
+g_regions[r.start] = r;
+PIN_ReleaseLock(&g_regions_lock);
+
+PIN_GetLock(&g_events_lock, PIN_ThreadId());
+if (logf) {
+fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s)\n",
+ptr, size, tag, file ? file : "?", line, func ? func : "?");
+fflush(logf);
+}
+if (eventsf) {
+fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+(void*)r.start, r.size, r.tag.c_str(),
+file ? file : "?", line, func ? func : "?");
+fflush(eventsf);
+}
+PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID CallFreeSite(CONTEXT*, AFUNPTR,
-                         VOID* ptr, const char* type_tag,
-                         const char* func, const char* file, int line) {
-    if (!ptr) return;
-    const char* tag = type_tag ? type_tag : "?";
 
-    bool known = false;
-    Region snap;
+static VOID CallFreeSite(VOID* ptr, const char* type_tag,
+    const char* func, const char* file, int line)
+{
+// Debug για να δούμε αν μπαίνουμε εδώ
+fprintf(stderr, "[Pintool] CallFreeSite: ptr=%p tag=%s func=%s file=%s line=%d\n",
+ptr,
+type_tag ? type_tag : "?",
+func ? func : "?",
+file ? file : "?",
+line);
 
-    PIN_GetLock(&g_regions_lock, PIN_ThreadId());
-    auto it = g_regions.find((ADDRINT)ptr);
-    if (it != g_regions.end()) {
-        it->second.freed = true; // oxi diagrafi gia UAF detection
-        snap = it->second;
-        known = true;
-    }
-    PIN_ReleaseLock(&g_regions_lock);
+if (!ptr) return;
+const char* tag = type_tag ? type_tag : "?";
 
-    PIN_GetLock(&g_events_lock, PIN_ThreadId());
-    if (logf) {
-        fprintf(logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s\n",
-                ptr, tag, file?file:"?", line, func?func:"?", known?"":" (UNKNOWN)");
-        fflush(logf);
-    }
-    if (eventsf) {
-        if (known) {
-            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=%s:%d (%s)\n",
-                    (void*)snap.start, snap.size, snap.tag.c_str(),
-                    file?file:"?", line, func?func:"?");
-        } else {
-            fprintf(eventsf, "free  start=%p tag=%s site=%s:%d (%s)\n",
-                    ptr, tag, file?file:"?", line, func?func:"?");
-        }
-        fflush(eventsf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
+bool   known = false;
+Region snap;
+
+PIN_GetLock(&g_regions_lock, PIN_ThreadId());
+auto it = g_regions.find((ADDRINT)ptr);
+if (it != g_regions.end()) {
+it->second.freed = true;
+snap  = it->second;
+known = true;
 }
+PIN_ReleaseLock(&g_regions_lock);
+
+PIN_GetLock(&g_events_lock, PIN_ThreadId());
+if (logf) {
+fprintf(logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s\n",
+ptr, tag,
+file ? file : "?", line, func ? func : "?",
+known ? "" : " (UNKNOWN)");
+fflush(logf);
+}
+if (eventsf) {
+if (known) {
+fprintf(eventsf, "free  start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+(void*)snap.start, snap.size, snap.tag.c_str(),
+file ? file : "?", line, func ? func : "?");
+} else {
+fprintf(eventsf, "free  start=%p tag=%s site=%s:%d (%s)\n",
+ptr, tag,
+file ? file : "?", line, func ? func : "?");
+}
+fflush(eventsf);
+}
+PIN_ReleaseLock(&g_events_lock);
+}
+
+// BEFORE: κρατάμε τα arguments σε per-thread context
+static VOID BeforeAllocSite(THREADID tid,
+    VOID* /*ptr_arg*/,
+    size_t size,
+    const char* type_tag,
+    const char* func,
+    const char* file,
+    int line)
+{
+ThreadCtx* tc = CTX(tid);
+if (!tc) return;
+
+tc->hasPendingAlloc  = true;
+tc->pendingSize      = size;
+tc->pendingTypeTag   = type_tag;
+tc->pendingFunc      = func;
+tc->pendingFile      = file;
+tc->pendingLine      = line;
+}
+
+// AFTER: παίρνουμε το πραγματικό ptr (return value) και κάνουμε register το region
+static VOID AfterAllocSite(THREADID tid, VOID* retptr)
+{
+    if (!retptr) return;
+
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingAlloc) return;
+
+    // Χρησιμοποιούμε την ήδη υπάρχουσα CallAllocSite για να ενημερώσει g_regions + events
+    CallAllocSite(retptr,
+                  tc->pendingSize,
+                  tc->pendingTypeTag,
+                  tc->pendingFunc,
+                  tc->pendingFile,
+                  tc->pendingLine);
+
+    tc->hasPendingAlloc = false; // cleanup
+}
+
 
 // ----------------- Hook your dummy symbols if present ------------
 // Vriskoume ta __memtrace_alloc_site kai __memtrace_free_site an yparxoun kai kanoume replace me ta dika mas (callAlloc/FreeSite).
 // Scanarei to image gia ta dummy sites.
-static VOID HookDummySites(IMG img) {
+
+static VOID HookDummySites(IMG img)
+{
     for (SEC s = IMG_SecHead(img); SEC_Valid(s); s = SEC_Next(s)) {
         for (RTN r = SEC_RtnHead(s); RTN_Valid(r); r = RTN_Next(r)) {
             string n = RTN_Name(r);
 
+            // --- Hook για __memtrace_alloc_site --------------------
             if (n.find("__memtrace_alloc_site") != string::npos) {
-                PROTO p = PROTO_Allocate(PIN_PARG(void), CALLINGSTD_DEFAULT, n.c_str(),
-                    PIN_PARG(void*), PIN_PARG(size_t), PIN_PARG(const char*),
-                    PIN_PARG(const char*), PIN_PARG(const char*), PIN_PARG(int), PIN_PARG_END());
 
-                RTN_ReplaceSignature(
-                    r, AFUNPTR(CallAllocSite),
-                    IARG_PROTOTYPE, p, IARG_CONTEXT, IARG_ORIG_FUNCPTR,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5,
+                PROTO pAlloc = PROTO_Allocate(
+                    PIN_PARG(void*),                 // return type (void*)
+                    CALLINGSTD_DEFAULT,
+                    "__memtrace_alloc_site",
+                    PIN_PARG(void*),                // ptr (unused)
+                    PIN_PARG(size_t),               // size
+                    PIN_PARG(const char*),          // type_tag
+                    PIN_PARG(const char*),          // func
+                    PIN_PARG(const char*),          // file
+                    PIN_PARG(int),                  // line
+                    PIN_PARG_END());
+
+                RTN_Open(r);
+
+                // BEFORE: αποθήκευση των arguments σε TLS (ασφαλές εδώ)
+                RTN_InsertCall(
+                    r, IPOINT_BEFORE, AFUNPTR(BeforeAllocSite),
+                    IARG_THREAD_ID,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0, // ptr (δεν το χρησιμοποιούμε)
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1, // size
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2, // type_tag
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3, // func
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4, // file
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5, // line
                     IARG_END);
-                PROTO_Free(p);
+
+                // AFTER: παίρνουμε το πραγματικό return value (malloc ptr)
+                RTN_InsertCall(
+                    r, IPOINT_AFTER, AFUNPTR(AfterAllocSite),
+                    IARG_THREAD_ID,
+                    IARG_PROTOTYPE, pAlloc,
+                    IARG_FUNCRET_EXITPOINT_VALUE,
+                    IARG_END);
+
+                RTN_Close(r);
+                PROTO_Free(pAlloc);
 
                 PIN_GetLock(&g_events_lock, 0);
-                if (logf) { fprintf(logf, "[HOOK] __memtrace_alloc_site in %s\n", IMG_Name(img).c_str()); fflush(logf); }
+                if (logf) {
+                    fprintf(logf, "[HOOK] __memtrace_alloc_site in %s\n",
+                            IMG_Name(img).c_str());
+                    fflush(logf);
+                }
                 PIN_ReleaseLock(&g_events_lock);
             }
-            else if (n.find("__memtrace_free_site") != string::npos) {
-                PROTO p = PROTO_Allocate(PIN_PARG(void), CALLINGSTD_DEFAULT, n.c_str(),
-                    PIN_PARG(void*), PIN_PARG(const char*),
-                    PIN_PARG(const char*), PIN_PARG(const char*), PIN_PARG(int), PIN_PARG_END());
+                        
 
-                RTN_ReplaceSignature(
-                    r, AFUNPTR(CallFreeSite),
-                    IARG_PROTOTYPE, p, IARG_CONTEXT, IARG_ORIG_FUNCPTR,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+            // --- Hook για __memtrace_free_site ---------------------
+            else if (n.find("__memtrace_free_site") != string::npos) {
+
+                PROTO pFree = PROTO_Allocate(
+                    PIN_PARG(void),                 // return type (void)
+                    CALLINGSTD_DEFAULT,
+                    "__memtrace_free_site",
+                    PIN_PARG(void*),                // ptr
+                    PIN_PARG(const char*),          // type_tag
+                    PIN_PARG(const char*),          // func
+                    PIN_PARG(const char*),          // file
+                    PIN_PARG(int),                  // line
+                    PIN_PARG_END());
+
+                RTN_Open(r);
+                RTN_InsertCall(
+                    r, IPOINT_BEFORE, AFUNPTR(CallFreeSite),
+                    IARG_PROTOTYPE, pFree,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0, // ptr
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1, // type_tag
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2, // func
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3, // file
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4, // line
                     IARG_END);
-                PROTO_Free(p);
+                RTN_Close(r);
+                PROTO_Free(pFree);
 
                 PIN_GetLock(&g_events_lock, 0);
-                if (logf) { fprintf(logf, "[HOOK] __memtrace_free_site in %s\n", IMG_Name(img).c_str()); fflush(logf); }
+                if (logf) {
+                    fprintf(logf, "[HOOK] __memtrace_free_site in %s\n",
+                            IMG_Name(img).c_str());
+                    fflush(logf);
+                }
                 PIN_ReleaseLock(&g_events_lock);
             }
         }
     }
 }
+
 
 // ----------------- Optional glibc malloc/free hooks --------------
 // otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
