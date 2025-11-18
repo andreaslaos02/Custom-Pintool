@@ -213,7 +213,7 @@ static VOID HookDummySites(IMG img) {
                     IARG_END);
                 PROTO_Free(p);
 
-                PIN_GetLock(&g_events_lock, PIN_ThreadId());
+                PIN_GetLock(&g_events_lock, 0);
                 if (logf) { fprintf(logf, "[HOOK] __memtrace_alloc_site in %s\n", IMG_Name(img).c_str()); fflush(logf); }
                 PIN_ReleaseLock(&g_events_lock);
             }
@@ -233,7 +233,7 @@ static VOID HookDummySites(IMG img) {
                     IARG_END);
                 PROTO_Free(p);
 
-                PIN_GetLock(&g_events_lock, PIN_ThreadId());
+                PIN_GetLock(&g_events_lock, 0);
                 if (logf) { fprintf(logf, "[HOOK] __memtrace_free_site in %s\n", IMG_Name(img).c_str()); fflush(logf); }
                 PIN_ReleaseLock(&g_events_lock);
             }
@@ -329,7 +329,7 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
         PROTO_Free(p);
         RTN_Close(r);
-        PIN_GetLock(&g_events_lock, PIN_ThreadId());
+        PIN_GetLock(&g_events_lock, 0);
         if (logf) { fprintf(logf, "[HOOK] libc malloc in %s\n", IMG_Name(img).c_str()); fflush(logf); }
         PIN_ReleaseLock(&g_events_lock);
     }
@@ -345,7 +345,7 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_END);
         PROTO_Free(p);
         RTN_Close(r);
-        PIN_GetLock(&g_events_lock, PIN_ThreadId());
+        PIN_GetLock(&g_events_lock, 0);
         if (logf) { fprintf(logf, "[HOOK] libc calloc in %s\n", IMG_Name(img).c_str()); fflush(logf); }
         PIN_ReleaseLock(&g_events_lock);
     }
