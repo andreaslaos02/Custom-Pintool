@@ -70,7 +70,7 @@ static bool FindRegion(ADDRINT a, Region &out) {
     if (it != g_regions.begin()) {
         --it;                            // candidate: start <= a
         const Region &r = it->second;
-        if (!r.freed && a >= r.start && a < (r.start + r.size)) {
+        if (a >= r.start && a < (r.start + r.size)) {
             out = r;                     // snapshot (αντιγράφει και το string)
             found = true;
         }
@@ -113,23 +113,9 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     PIN_ReleaseLock(&g_events_lock);
 }
 
-
-static BOOL ShouldInstrumentIns(INS ins) {
-    // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
-    IMG img = IMG_FindByAddress(INS_Address(ins));
-    if (!IMG_Valid(img)) return FALSE;
-
-    // Κάνε trace ΜΟΝΟ το main executable (π.χ. ds_demo, memcached)
-    return IMG_IsMainExecutable(img);
-}
-
 // ---------------- Instruction instrumentation --------------------
 // callbacks gia kathe entoli me mnhmh prin ektelesti kai mono otan ektelestei pragrmatika mnhmh (predicated)
 static VOID Instruction(INS ins, VOID*) {
-    // Φίλτρο: αγνοούμε libc, libpthread, ld-linux, κτλ.
-    if (!ShouldInstrumentIns(ins))
-        return;
-
     const UINT32 n = INS_MemoryOperandCount(ins);
     for (UINT32 i = 0; i < n; ++i) {
         if (INS_MemoryOperandIsRead(ins, i)) {
