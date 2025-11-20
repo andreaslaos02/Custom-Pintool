@@ -18,7 +18,7 @@ void* __memtrace_alloc_site(void* ptr, size_t size,
         return NULL;
     }
 
-    // Optional diagnostic print (μπορείς να σχολιάσεις αν σε ενοχλεί)
+    // Optional diagnostic print 
     fprintf(stderr, "[dummy_alloc] ALLOC %p size=%zu tag=%s @%s:%d (%s)\n",
             p, size, type_tag ? type_tag : "-", file, line, func);
 
