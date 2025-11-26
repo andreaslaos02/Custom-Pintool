@@ -32,7 +32,7 @@ static FILE* logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
 
-// Thread-local context: per-thread state (ΟΧΙ πια per-thread file)
+// Thread-local context: per-thread state
 struct ThreadCtx {
     FILE* out;  // ΔΕΝ χρησιμοποιείται πλέον για αρχεία
 
@@ -300,7 +300,7 @@ static VOID BeforeAllocSite(THREADID tid,
 // AFTER: παίρνουμε το πραγματικό ptr (return value) και κάνουμε register το region
 static VOID AfterAllocSite(THREADID tid, VOID* retptr)
 {
-    if (!retptr) return;
+    if (!retptr) return; 
 
     ThreadCtx* tc = CTX(tid);
     if (!tc || !tc->hasPendingAlloc) return;

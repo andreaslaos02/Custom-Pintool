@@ -9,7 +9,7 @@
 # Pin generated traces & logs
 *.out
 *.log
-pinatrace*
+#pinatrace*
 memtrace/*.out
 
 # Build folders
