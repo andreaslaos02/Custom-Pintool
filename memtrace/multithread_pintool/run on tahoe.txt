@@ -43,3 +43,11 @@ gcc -O2 -o ds_demo ds_demo.c dummy_alloc.c
 $PIN_ROOT/pin \
   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so \
   -- ./ds_demo
+
+
+
+OR ME ALIAS 
+
+build_mt: ginete to compile tou pintool (vriski to root)
+
+run_mt: compile kai link to pintool
