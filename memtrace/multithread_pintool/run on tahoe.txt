@@ -48,6 +48,6 @@ $PIN_ROOT/pin \
 
 OR ME ALIAS 
 
-build_mt: ginete to compile tou pintool (vriski to root)
+build_mt: ginete to compile tou pintool (vriski to root)            - se KATHE allagi pu kanw
 
 run_mt: compile kai link to pintool
