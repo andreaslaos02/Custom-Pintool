@@ -1,7 +1,8 @@
-export PIN_ROOT=/home/students/cs/2021/alaos002/pin-external-3.31-98869-gfa6f126a8-gcc-linux
+manually:
+
+export PIN_ROOT=$HOME/tools/pin
 
 rm -f obj-intel64/pinatrace_alloc_mt.o obj-intel64/pinatrace_alloc_mt.so pintool.log pinatrace*.out pinatrace.events
-
 mkdir -p obj-intel64
 
 g++ -Wall -Werror -Wno-unknown-pragmas -DPIN_CRT=1 -fno-stack-protector -fno-exceptions \
@@ -18,7 +19,6 @@ g++ -Wall -Werror -Wno-unknown-pragmas -DPIN_CRT=1 -fno-stack-protector -fno-exc
     -O3 -fomit-frame-pointer -fno-strict-aliasing \
     -c -o obj-intel64/pinatrace_alloc_mt.o pinatrace_alloc_mt.cpp
 
-
 g++ -shared -Wl,--hash-style=sysv \
     "$PIN_ROOT/intel64/runtime/pincrt/crtbeginS.o" -Wl,-Bsymbolic \
     -Wl,--version-script="$PIN_ROOT/source/include/pin/pintool.ver" -fabi-version=2 \
@@ -28,8 +28,18 @@ g++ -shared -Wl,--hash-style=sysv \
     -lpin -lxed "$PIN_ROOT/intel64/runtime/pincrt/crtendS.o" \
     -lpindwarf -ldwarf -ldl-dynamic -nostdlib -lc++ -lc++abi -lm-dynamic -lc-dynamic -lunwind-dynamic
 
-    
 gcc -O2 -o ds_demo ds_demo.c dummy_alloc.c 
 
-
 "$PIN_ROOT/pin" -t ./obj-intel64/pinatrace_alloc_mt.so -- ./ds_demo
+
+
+
+
+Easiest:
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+gcc -O2 -o ds_demo ds_demo.c dummy_alloc.c
+
+$PIN_ROOT/pin \
+  -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so \
+  -- ./ds_demo
