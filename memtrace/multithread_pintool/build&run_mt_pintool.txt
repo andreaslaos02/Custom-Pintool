@@ -3,7 +3,7 @@ export PIN_ROOT=/home/students/cs/2021/alaos002/pin-external-3.31-98869-gfa6f126
 rm -f obj-intel64/pinatrace_alloc_mt.o obj-intel64/pinatrace_alloc_mt.so pintool.log pinatrace*.out pinatrace.events
 
 mkdir -p obj-intel64
-
+ 
 g++ -Wall -Werror -Wno-unknown-pragmas -DPIN_CRT=1 -fno-stack-protector -fno-exceptions \
     -funwind-tables -fasynchronous-unwind-tables -fno-rtti -DTARGET_IA32E -DHOST_IA32E \
     -fPIC -DTARGET_LINUX -fabi-version=2 -faligned-new \
