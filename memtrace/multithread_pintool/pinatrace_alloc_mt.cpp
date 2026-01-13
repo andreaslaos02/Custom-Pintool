@@ -16,8 +16,8 @@ struct Region {
     ADDRINT start;  //arxiki diefthinsi
     size_t  size;
     string  tag;    
-    bool    freed;
-    Region() : start(0), size(0), tag("-"), freed(false) {}
+    //bool   freed;
+    Region() : start(0), size(0), tag("-")  {} //freed(false)
 };
 
 // Global region map (keyed by start)
@@ -70,13 +70,51 @@ static bool FindRegion(ADDRINT a, Region &out) {
     if (it != g_regions.begin()) {
         --it;                            // candidate: start <= a
         const Region &r = it->second;
-        if (!r.freed && a >= r.start && a < (r.start + r.size)) {
+        if (a >= r.start && a < (r.start + r.size)) {      //!r.freed &&
             out = r;                     // snapshot (αντιγράφει και το string)
             found = true;
         }
     }
     PIN_ReleaseLock(&g_regions_lock);
     return found;
+}
+
+// ----------------------Helper gia overlap detaction -----------------
+static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &overlap) {
+    if (newStart == 0 || newSize == 0) return false;
+
+    ADDRINT newEnd = newStart + (ADDRINT)newSize;
+    if (newEnd < newStart) {
+        // overflow
+        overlap.start = newStart;
+        overlap.size  = newSize;
+        overlap.tag   = "ALLOC_OVERFLOW";
+        return true;
+    }
+
+    auto it = g_regions.lower_bound(newStart);
+
+    // Check previous region
+    if (it != g_regions.begin()) {
+        auto prev = it; --prev;
+        const Region &r = prev->second;
+        ADDRINT rEnd = r.start + (ADDRINT)r.size;
+        if (rEnd > newStart) { // overlap
+            overlap = r;
+            return true;
+        }
+    }
+
+    // Check current region
+    if (it != g_regions.end()) {
+        const Region &r = it->second;
+        if (r.start < newEnd) { // overlap
+            overlap = r;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 // --------------------- Record memory accesses --------------------
@@ -169,14 +207,69 @@ static VOID CallAllocSite(VOID* ptr, size_t size, const char* type_tag,
     const char* tag = type_tag ? type_tag : "?";
 
     // ενημέρωση region map
-    PIN_GetLock(&g_regions_lock, tid);
+    /*PIN_GetLock(&g_regions_lock, tid);
     Region r;
     r.start = (ADDRINT)ptr;
     r.size  = size;
     r.tag   = tag;
     r.freed = false;
     g_regions[r.start] = r;
-    PIN_ReleaseLock(&g_regions_lock);
+    PIN_ReleaseLock(&g_regions_lock);*/
+
+    Region r;
+r.start = (ADDRINT)ptr;
+r.size  = size;
+r.tag   = tag;
+
+bool overlapFound = false;
+Region ov;
+
+PIN_GetLock(&g_regions_lock, tid);
+overlapFound = OverlapsLiveRegion_Locked(r.start, r.size, ov);
+
+if (!overlapFound) {
+    g_regions[r.start] = r; // insert live region
+}
+PIN_ReleaseLock(&g_regions_lock);
+
+if (overlapFound) {
+    // γράφουμε anomaly και ΔΕΝ εισάγουμε το νέο region
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (tracef) {
+        fprintf(tracef,
+            "T%u ANOMALY alloc_overlap new_start=%p new_size=%zu new_tag=%s "
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s)\n",
+            (unsigned)tid,
+            (void*)r.start, r.size, r.tag.c_str(),
+            (void*)ov.start, ov.size, ov.tag.c_str(),
+            file ? file : "?", line, func ? func : "?");
+        fflush(tracef);
+    }
+
+    if (eventsf) {
+        fprintf(eventsf,
+            "ANOMALY alloc_overlap new_start=%p new_size=%zu new_tag=%s "
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s)\n",
+            (void*)r.start, r.size, r.tag.c_str(),
+            (void*)ov.start, ov.size, ov.tag.c_str(),
+            file ? file : "?", line, func ? func : "?");
+        fflush(eventsf);
+    }
+
+    if (logf) {
+        fprintf(logf,
+            "[ANOMALY] alloc_overlap new_start=%p new_size=%zu new_tag=%s "
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s @%s:%d (%s)\n",
+            (void*)r.start, r.size, r.tag.c_str(),
+            (void*)ov.start, ov.size, ov.tag.c_str(),
+            file ? file : "?", line, func ? func : "?");
+        fflush(logf);
+    }
+
+    PIN_ReleaseLock(&g_events_lock);
+    return; // ΣΗΜΑΝΤΙΚΟ
+}
 
     // Γράψιμο σε trace + events + log με κοινό lock
     PIN_GetLock(&g_events_lock, tid);
@@ -227,12 +320,20 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
     Region snap;
 
     PIN_GetLock(&g_regions_lock, tid);
-    auto it = g_regions.find((ADDRINT)ptr);
+    /*auto it = g_regions.find((ADDRINT)ptr);
     if (it != g_regions.end()) {
         it->second.freed = true;
         snap  = it->second;
         known = true;
+    }*/
+
+    auto it = g_regions.find((ADDRINT)ptr);
+    if (it != g_regions.end()) {
+        snap  = it->second;  // κράτα snapshot πριν σβήσεις
+        known = true;
+        g_regions.erase(it); // ERASE
     }
+
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
@@ -423,7 +524,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz) {
     THREADID tid = PIN_ThreadId();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = sz; r.tag = "heap"; r.freed = false;
+    Region r; r.start = ret; r.size = sz; r.tag = "heap"; //r.freed = false;
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
@@ -447,7 +548,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz) {
     THREADID tid = PIN_ThreadId();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc"; r.freed = false;
+    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc"; //r.freed = false;
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
@@ -471,8 +572,10 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
 
     if (oldp) {
         PIN_GetLock(&g_regions_lock, tid);
+        //auto it = g_regions.find(oldp);
+        //if (it != g_regions.end()) it->second.freed = true;
         auto it = g_regions.find(oldp);
-        if (it != g_regions.end()) it->second.freed = true;
+        if (it != g_regions.end()) g_regions.erase(it);
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
@@ -490,7 +593,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
     }
     if (ret && sz) {
         PIN_GetLock(&g_regions_lock, tid);
-        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc"; r.freed = false;
+        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc"; //r.freed = false;
         g_regions[ret] = r;
         PIN_ReleaseLock(&g_regions_lock);
 
@@ -516,8 +619,10 @@ static VOID BeforeFree(ADDRINT p) {
     bool known=false; Region snap;
 
     PIN_GetLock(&g_regions_lock, tid);
+    //auto it = g_regions.find(p);
+    //if (it != g_regions.end()) { it->second.freed = true; snap = it->second; known=true; }
     auto it = g_regions.find(p);
-    if (it != g_regions.end()) { it->second.freed = true; snap = it->second; known=true; }
+    if (it != g_regions.end()) { snap = it->second; known=true; g_regions.erase(it); }
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
