@@ -1,25 +1,17 @@
-alloc start=0x7f210c000b70 size=16 tag=Node site=ds_demo.c:20 (worker)
-alloc start=0x7f2104000b70 size=16 tag=Node site=ds_demo.c:20 (worker)
-alloc start=0x7f210c000b90 size=40 tag=int[] site=ds_demo.c:25 (worker)
-alloc start=0x7f2108000b70 size=16 tag=Node site=ds_demo.c:20 (worker)
-alloc start=0x7f20fc000b70 size=16 tag=Node site=ds_demo.c:20 (worker)
-alloc start=0x7f2104000b90 size=40 tag=int[] site=ds_demo.c:25 (worker)
-alloc start=0x7f2108000b90 size=40 tag=int[] site=ds_demo.c:25 (worker)
-alloc start=0x7f20fc000b90 size=40 tag=int[] site=ds_demo.c:25 (worker)
-alloc start=0x7f210c000bc0 size=48 tag=DynArr site=ds_demo.c:35 (worker)
-alloc start=0x7f2104000bc0 size=48 tag=DynArr site=ds_demo.c:35 (worker)
-alloc start=0x7f2108000bc0 size=48 tag=DynArr site=ds_demo.c:35 (worker)
-alloc start=0x7f20fc000bc0 size=48 tag=DynArr site=ds_demo.c:35 (worker)
-free  start=0x7f20fc000b90 size=40 tag=int[] site=ds_demo.c:45 (worker)
-free  start=0x7f2108000b90 size=40 tag=int[] site=ds_demo.c:45 (worker)
-free  start=0x7f210c000b90 size=40 tag=int[] site=ds_demo.c:45 (worker)
-free  start=0x7f2104000b90 size=40 tag=int[] site=ds_demo.c:45 (worker)
-free  start=0x7f20fc000bc0 size=48 tag=DynArr site=ds_demo.c:46 (worker)
-free  start=0x7f2104000bc0 size=48 tag=DynArr site=ds_demo.c:46 (worker)
-free  start=0x7f2108000bc0 size=48 tag=DynArr site=ds_demo.c:46 (worker)
-free  start=0x7f210c000bc0 size=48 tag=DynArr site=ds_demo.c:46 (worker)
-free  start=0x7f20fc000b70 size=16 tag=Node site=ds_demo.c:47 (worker)
-free  start=0x7f2108000b70 size=16 tag=Node site=ds_demo.c:47 (worker)
-free  start=0x7f210c000b70 size=16 tag=Node site=ds_demo.c:47 (worker)
-free  start=0x7f2104000b70 size=16 tag=Node site=ds_demo.c:47 (worker)
-#eof
+free  start=0x55d3d572a310 tag=? site=libc:free
+free  start=0x55d3d5733380 tag=? site=libc:free
+free  start=0x55d3d5733b30 tag=? site=libc:free
+free  start=0x55d3d57342e0 tag=? site=libc:free
+free  start=0x55d3d5734a90 tag=? site=libc:free
+alloc start=0x7feb10000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7feb08000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7feb00000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7feb04000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7feaf8000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x55d3d5735ea0 size=3 tag=heap site=libc:malloc
+free  start=0x55d3d5735e20 tag=? site=libc:free
+free  start=0x55d3d5735ea0 size=3 tag=heap site=libc:free
+free  start=0x55d3d5735c40 tag=? site=libc:free
+alloc start=0x55d3d5735ea0 size=2 tag=heap site=libc:malloc
+free  start=0x55d3d5735bf0 tag=? site=libc:free
+free  start=0x55d3d5735b90 tag=? site=libc:free

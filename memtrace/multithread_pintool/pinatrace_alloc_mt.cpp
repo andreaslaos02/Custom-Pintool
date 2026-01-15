@@ -4,10 +4,11 @@
 #include <cstdio>
 #include <cstdint>
 #include <unistd.h>   // getpid
+#include <set>
 
 using std::string;
 
-// ----------------------------- Knobs -----------------------------    //gia hooks se malloc/free libc
+// ----------------------------- Knobs -----------------------------    // Gia hooks se malloc/free libc
 KNOB<BOOL> KnobUseLibcHooks(KNOB_MODE_WRITEONCE, "pintool",
     "use_libc_hooks", "0", "Also instrument malloc/calloc/realloc/free in libc.");
 
@@ -15,7 +16,7 @@ KNOB<BOOL> KnobUseLibcHooks(KNOB_MODE_WRITEONCE, "pintool",
 struct Region {
     ADDRINT start;  //arxiki diefthinsi
     size_t  size;
-    string  tag;    
+    string  tag;
     //bool   freed;
     Region() : start(0), size(0), tag("-")  {} //freed(false)
 };
@@ -31,6 +32,10 @@ static PIN_LOCK g_events_lock;   // protects events/log/trace global files
 static FILE* logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
+
+// ---------------- Hook dedupe (avoid double-instrumenting aliased RTNs) ----------------
+static std::set<ADDRINT> g_hooked_rtn_addrs;
+static PIN_LOCK g_hook_lock;
 
 // Thread-local context: per-thread state
 struct ThreadCtx {
@@ -63,7 +68,7 @@ static inline ThreadCtx* CTX(THREADID tid) {
 
 // ------------------------- Lookup helper -------------------------
 // Snapshot variant: γεμίζει το out και επιστρέφει true/false.
-static bool FindRegion(ADDRINT a, Region &out) {
+/*static bool FindRegion(ADDRINT a, Region &out) {
     bool found = false;
     PIN_GetLock(&g_regions_lock, PIN_ThreadId());
     auto it = g_regions.upper_bound(a);  // first start > a
@@ -77,6 +82,19 @@ static bool FindRegion(ADDRINT a, Region &out) {
     }
     PIN_ReleaseLock(&g_regions_lock);
     return found;
+}*/
+
+static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
+
+
+// Helper
+static bool TryMarkHooked(RTN r)
+{
+    const ADDRINT a = RTN_Address(r);
+    PIN_GetLock(&g_hook_lock, 0);
+    bool fresh = g_hooked_rtn_addrs.insert(a).second;
+    PIN_ReleaseLock(&g_hook_lock);
+    return fresh; // true => first time we see this routine address
 }
 
 // ----------------------Helper gia overlap detaction -----------------
@@ -118,7 +136,7 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
 }
 
 // --------------------- Record memory accesses --------------------
-static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
+/*static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return; // global trace file
 
     const ADDRINT a = (ADDRINT)ea;
@@ -143,6 +161,39 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (!FindRegion(a, snap)) return;
 
     const size_t off = (size_t)(a - snap.start);
+    if (off >= snap.size) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef, "T%u %p: store %p tag=%s off=%zu\n",
+            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+
+
+static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
+    if (!tracef) return;
+
+    const ADDRINT a = (ADDRINT)ea;
+    Region snap;
+    size_t off = 0;
+
+    if (!FindRegionWithOff(a, snap, off)) return;
+    if (off >= snap.size) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef, "T%u %p: load  %p tag=%s off=%zu\n",
+            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
+    if (!tracef) return;
+
+    const ADDRINT a = (ADDRINT)ea;
+    Region snap;
+    size_t off = 0;
+
+    if (!FindRegionWithOff(a, snap, off)) return;
     if (off >= snap.size) return;
 
     PIN_GetLock(&g_events_lock, tid);
@@ -613,7 +664,25 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
     }
 }
 
-static VOID BeforeFree(ADDRINT p) {
+static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
+{
+    bool found = false;
+    PIN_GetLock(&g_regions_lock, PIN_ThreadId());
+    auto it = g_regions.upper_bound(a);
+    if (it != g_regions.begin()) {
+        --it;
+        const Region &r = it->second;
+        if (a >= r.start && a < (r.start + r.size)) {
+            out = r;
+            off = (size_t)(a - r.start);
+            found = true;
+        }
+    }
+    PIN_ReleaseLock(&g_regions_lock);
+    return found;
+}
+
+/*static VOID BeforeFree(ADDRINT p) {
     if (!p) return;
     THREADID tid = PIN_ThreadId();
     bool known=false; Region snap;
@@ -646,11 +715,121 @@ static VOID BeforeFree(ADDRINT p) {
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
+}*/
+
+static VOID BeforeFree(ADDRINT p) {
+    if (!p) return;
+    THREADID tid = PIN_ThreadId();
+
+    bool known_exact = false;
+    bool known_inside = false;
+    //bool erased = false;
+    Region snap;
+    size_t off = 0;
+
+    PIN_GetLock(&g_regions_lock, tid);
+
+    // 1) exact start
+    auto it = g_regions.find(p);
+    if (it != g_regions.end()) {
+        snap = it->second;
+        known_exact = true;
+        g_regions.erase(it);
+        //erased = true;
+    } else {
+        // 2) interior pointer?
+        auto it2 = g_regions.upper_bound(p);
+        if (it2 != g_regions.begin()) {
+            --it2;
+            const Region &r = it2->second;
+            ADDRINT end = r.start + (ADDRINT)r.size;
+            if (p >= r.start && p < end) {
+                snap = r;
+                off = (size_t)(p - r.start);
+                known_inside = true;
+
+                // IMPORTANT:
+                // δεν κάνουμε erase εδώ, γιατί δεν ξέρουμε ποιο είναι το real start που πρέπει να φύγει
+                // (αν θες, θα το κάνουμε ως ANOMALY χωρίς erase)
+            }
+        }
+    }
+
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (eventsf) {
+        if (known_exact) {
+            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:free\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str());
+        } else if (known_inside) {
+            fprintf(eventsf,
+                    "ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
+                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
+        } else {
+            fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
+        }
+        fflush(eventsf);
+    }
+
+    if (tracef) {
+        if (known_exact) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=libc:free\n",
+                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str());
+        } else if (known_inside) {
+            fprintf(tracef,
+                    "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
+                    (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=? site=libc:free\n",
+                    (unsigned)tid, (void*)p);
+        }
+        fflush(tracef);
+    }
+
+    PIN_ReleaseLock(&g_events_lock);
 }
 
+// ---------- Extra libc hooks for better coverage ----------
+
+// aligned_alloc(size_t alignment, size_t size) -> void*
+static VOID AfterAlignedAlloc(ADDRINT ret, size_t alignment, size_t sz) {
+    (void)alignment;
+    AfterMalloc(ret, sz);
+}
+
+// memalign(size_t alignment, size_t size) -> void*
+static VOID AfterMemalign(ADDRINT ret, size_t alignment, size_t sz) {
+    (void)alignment;
+    AfterMalloc(ret, sz);
+}
+
+// valloc(size_t size) -> void*
+static VOID AfterValloc(ADDRINT ret, size_t sz) {
+    AfterMalloc(ret, sz);
+}
+
+// pvalloc(size_t size) -> void*
+static VOID AfterPvalloc(ADDRINT ret, size_t sz) {
+    AfterMalloc(ret, sz);
+}
+
+// posix_memalign(void** memptr, size_t alignment, size_t size) -> int
+static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, size_t sz) {
+    (void)alignment;
+    if (rc != 0) return;
+    void** memptr = (void**)memptr_ptr;
+    if (!memptr) return;
+    void* p = *memptr;
+    if (!p || sz == 0) return;
+    AfterMalloc((ADDRINT)p, sz);
+}
 
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
-static VOID HookLibcAllocators(IMG img) {
+/*static VOID HookLibcAllocators(IMG img) {
     if (!KnobUseLibcHooks.Value()) return;
     if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return; // typically libc is shared
 
@@ -716,6 +895,156 @@ static VOID HookLibcAllocators(IMG img) {
         if (logf) { fprintf(logf, "[HOOK] libc free in %s\n", IMG_Name(img).c_str()); fflush(logf); }
         PIN_ReleaseLock(&g_events_lock);
     }
+}*/
+
+static VOID HookLibcAllocators(IMG img) {
+    if (!KnobUseLibcHooks.Value()) return;
+    if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return;
+
+    // Προαιρετικό αλλά χρήσιμο: κάνε hook μόνο στη libc
+    // (μειώνει θόρυβο αν άλλα libs έχουν "malloc" symbols)
+    const string imgName = IMG_Name(img);
+    if (imgName.find("libc.so") == string::npos) return;
+
+    auto LogHook = [&](const char* what) {
+        PIN_GetLock(&g_events_lock, 0);
+        if (logf) { fprintf(logf, "[HOOK] %s in %s\n", what, imgName.c_str()); fflush(logf); }
+        PIN_ReleaseLock(&g_events_lock);
+    };
+
+    auto HookAfterRet1 = [&](const char* sym, AFUNPTR fn) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, fn,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+
+    auto HookAfterRet2 = [&](const char* sym, AFUNPTR fn) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, fn,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+
+    auto HookBefore1 = [&](const char* sym, AFUNPTR fn) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_BEFORE, fn,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+
+    // malloc/calloc/realloc/free — hook both public + __libc_* names
+    HookAfterRet1("malloc",        AFUNPTR(AfterMalloc));
+    HookAfterRet1("__libc_malloc", AFUNPTR(AfterMalloc));
+
+    // calloc has 2 args
+    {
+        RTN r = RTN_FindByName(img, "calloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+                RTN_Open(r);
+                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
+                    IARG_FUNCRET_EXITPOINT_VALUE,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_END);
+                RTN_Close(r);
+                LogHook("calloc");
+            }
+        }
+        r = RTN_FindByName(img, "__libc_calloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+                RTN_Open(r);
+                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
+                    IARG_FUNCRET_EXITPOINT_VALUE,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_END);
+                RTN_Close(r);
+                LogHook("__libc_calloc");
+            }
+        }
+    }
+
+    // realloc: (oldptr, size)
+    {
+        RTN r = RTN_FindByName(img, "realloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
+                IARG_FUNCRET_EXITPOINT_VALUE,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_END);
+            RTN_Close(r);
+            LogHook("realloc");
+            }
+        }
+        r = RTN_FindByName(img, "__libc_realloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
+                IARG_FUNCRET_EXITPOINT_VALUE,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_END);
+            RTN_Close(r);
+            LogHook("__libc_realloc");
+            }
+        }
+    }
+
+    // free: before (ptr)
+    HookBefore1("free",        AFUNPTR(BeforeFree));
+    HookBefore1("__libc_free", AFUNPTR(BeforeFree));
+
+    // aligned / other allocators
+    HookAfterRet2("aligned_alloc", AFUNPTR(AfterAlignedAlloc));
+    HookAfterRet2("memalign",      AFUNPTR(AfterMemalign));
+    HookAfterRet1("valloc",        AFUNPTR(AfterValloc));
+    HookAfterRet1("pvalloc",       AFUNPTR(AfterPvalloc));
+
+    // posix_memalign returns int, writes pointer to *memptr
+    {
+        RTN r = RTN_FindByName(img, "posix_memalign");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterPosixMemalign),
+                IARG_FUNCRET_EXITPOINT_VALUE,                 // rc
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,             // void** memptr
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,             // alignment
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 2,             // size
+                IARG_END);
+            RTN_Close(r);
+            LogHook("posix_memalign");
+            }
+        }
+    }
 }
 
 // -------------------------- Image load ---------------------------
@@ -772,6 +1101,7 @@ int main(int argc, char* argv[]) {
 
     PIN_InitLock(&g_regions_lock);
     PIN_InitLock(&g_events_lock);
+    PIN_InitLock(&g_hook_lock);
 
     g_tls_key = PIN_CreateThreadDataKey(nullptr);
 
