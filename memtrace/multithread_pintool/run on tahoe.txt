@@ -98,6 +98,45 @@ printf "version\r\n" | nc -N 127.0.0.1 11211
 
 # MICRO workload ~1s (1 thread, 1 connection, λίγα requests - 50)
 ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 1 -r 50 -u 0.50 --binary
+----------------------------------------------------------------------------------------------
+
+RUN PIN FROM THE START WITH MEMCACHED
+
+Terminal 1:
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+
+ build_mt
+
+ rm -f pinatrace.out pinatrace.events pintool.log
+
+ $PIN_ROOT/pin \
+  -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so \
+  -use_libc_hooks 1 \
+  -- /usr/bin/memcached -p 11211 -t 4 -m 64
+
+Terminal 2:
+cd ~/memcache-perf
+
+./mcperf \
+  -s 127.0.0.1 \
+  -T 1 \
+  -c 1 \
+  -t 2 \
+  -r 2000 \
+  -u 1.0 \
+  --binary \
+  --loadonly
+
+  ./mcperf \
+  -s 127.0.0.1 \
+  -T 1 \
+  -c 1 \
+  -t 2 \
+  -r 2000 \
+  -u 0.0 \
+  --binary \
+  --noload
 
 
 ----------------------------------------------------------------------------------------------
@@ -113,7 +152,7 @@ rm -f pinatrace.out pinatrace.events pintool.log pin.* *.out *.events
 Terminal 2: (generator)
 
 cd ~/memcache-perf
-./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
+./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly   (ONLY SETs)
 
 pidof memcached   //returns memcached pid
 
@@ -126,8 +165,31 @@ sudo sysctl -w kernel.yama.ptrace_scope=0     //change scope to dyamically attac
 cd ~/repos/pintools/memtrace/multithread_pintool
 $PIN_ROOT/pin -pid 12345 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
 
+//no-load 
+cd ~/memcache-perf
+./mcperf -s 127.0.0.1 -T 1 -c 1 -t 3 -r 2000 -u 0.0 --binary --noload       (ONLY GETs)
+
 //change scope back to normal:
 sudo sysctl -w kernel.yama.ptrace_scope=1
 
 Terminal 1: ctrl + c
 ----------------------------------------------------------------------------------------------
+
+
+
+
+RUN THE NEW CODE WHERE LOAD/STORES OF MEMCACHED ARE DISABLED
+
+Terminal 1:
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+
+rm -f pinatrace.out pinatrace.events pintool.log
+
+$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1   -- memcached -p 11211 -u $USER
+
+Terminal 2:
+
+./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
+
+pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }

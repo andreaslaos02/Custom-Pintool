@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <unistd.h>   // getpid
 #include <set>
+#include <signal.h>
 
 using std::string;
 
@@ -32,6 +33,9 @@ static PIN_LOCK g_events_lock;   // protects events/log/trace global files
 static FILE* logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
+
+static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
+//static volatile BOOL g_trace_allocs = TRUE;    // alloc/free (συνήθως τα θες πάντα)
 
 // ---------------- Hook dedupe (avoid double-instrumenting aliased RTNs) ----------------
 static std::set<ADDRINT> g_hooked_rtn_addrs;
@@ -67,23 +71,6 @@ static inline ThreadCtx* CTX(THREADID tid) {
 }
 
 // ------------------------- Lookup helper -------------------------
-// Snapshot variant: γεμίζει το out και επιστρέφει true/false.
-/*static bool FindRegion(ADDRINT a, Region &out) {
-    bool found = false;
-    PIN_GetLock(&g_regions_lock, PIN_ThreadId());
-    auto it = g_regions.upper_bound(a);  // first start > a
-    if (it != g_regions.begin()) {
-        --it;                            // candidate: start <= a
-        const Region &r = it->second;
-        if (a >= r.start && a < (r.start + r.size)) {      //!r.freed &&
-            out = r;                     // snapshot (αντιγράφει και το string)
-            found = true;
-        }
-    }
-    PIN_ReleaseLock(&g_regions_lock);
-    return found;
-}*/
-
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
 
 
@@ -135,44 +122,32 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
     return false;
 }
 
-// --------------------- Record memory accesses --------------------
-/*static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
-    if (!tracef) return; // global trace file
 
-    const ADDRINT a = (ADDRINT)ea;
-    Region snap;
-    if (!FindRegion(a, snap)) return;
+static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
+    BOOL hasHandler, const EXCEPTION_INFO* pExceptInfo, VOID* v)
+{
+(void)tid; (void)sig; (void)ctxt; (void)hasHandler; (void)pExceptInfo; (void)v;
 
-    const size_t off = (size_t)(a - snap.start);
-    if (off >= snap.size) return;
+g_trace_memops = !g_trace_memops;
 
-    // Ένα ενιαίο trace file, προστατευμένο με lock
-    PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef, "T%u %p: load  %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
-    PIN_ReleaseLock(&g_events_lock);
+PIN_GetLock(&g_events_lock, 0);
+if (logf) {
+fprintf(logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
+fflush(logf);
+}
+if (tracef) {
+fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
+fflush(tracef);
+}
+PIN_ReleaseLock(&g_events_lock);
+
+return FALSE; // do not deliver to application
 }
 
-static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
-    if (!tracef) return;
-
-    const ADDRINT a = (ADDRINT)ea;
-    Region snap;
-    if (!FindRegion(a, snap)) return;
-
-    const size_t off = (size_t)(a - snap.start);
-    if (off >= snap.size) return;
-
-    PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef, "T%u %p: store %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
-    PIN_ReleaseLock(&g_events_lock);
-}*/
-
-
+// --------------------- Record memory accesses --------------------
 static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return;
-
+    if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
     Region snap;
     size_t off = 0;
@@ -193,7 +168,7 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
 
 static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return;
-
+    if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
     Region snap;
     size_t off = 0;
@@ -221,19 +196,6 @@ static BOOL ShouldInstrumentIns(INS ins) {
     // Κάνε trace ΜΟΝΟ το main executable (π.χ. ds_demo, memcached)
     return IMG_IsMainExecutable(img);
 }
-
-/*static BOOL ShouldInstrumentIns(INS ins) {
-    IMG img = IMG_FindByAddress(INS_Address(ins));
-    if (!IMG_Valid(img)) return FALSE;
-
-    // DEBUG MODE:
-    // Κάνε trace και στο main exe ΚΑΙ σε shared libs,
-    // αλλά ΟΧΙ στον dynamic loader (ld-linux) για να μην πνιγείς.
-    const string name = IMG_Name(img);
-    if (name.find("ld-linux") != string::npos) return FALSE;
-
-    return TRUE;
-}*/
 
 // ---------------- Instruction instrumentation --------------------
 // callbacks gia kathe entoli me mnhmh prin ektelesti kai mono otan ektelestei pragrmatika mnhmh (predicated)
@@ -279,16 +241,6 @@ static VOID CallAllocSite(VOID* ptr, size_t size, const char* type_tag,
 
     if (!ptr || size == 0) return;
     const char* tag = type_tag ? type_tag : "?";
-
-    // ενημέρωση region map
-    /*PIN_GetLock(&g_regions_lock, tid);
-    Region r;
-    r.start = (ADDRINT)ptr;
-    r.size  = size;
-    r.tag   = tag;
-    r.freed = false;
-    g_regions[r.start] = r;
-    PIN_ReleaseLock(&g_regions_lock);*/
 
     Region r;
 r.start = (ADDRINT)ptr;
@@ -394,12 +346,6 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
     Region snap;
 
     PIN_GetLock(&g_regions_lock, tid);
-    /*auto it = g_regions.find((ADDRINT)ptr);
-    if (it != g_regions.end()) {
-        it->second.freed = true;
-        snap  = it->second;
-        known = true;
-    }*/
 
     auto it = g_regions.find((ADDRINT)ptr);
     if (it != g_regions.end()) {
@@ -705,41 +651,6 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
     return found;
 }
 
-/*static VOID BeforeFree(ADDRINT p) {
-    if (!p) return;
-    THREADID tid = PIN_ThreadId();
-    bool known=false; Region snap;
-
-    PIN_GetLock(&g_regions_lock, tid);
-    //auto it = g_regions.find(p);
-    //if (it != g_regions.end()) { it->second.freed = true; snap = it->second; known=true; }
-    auto it = g_regions.find(p);
-    if (it != g_regions.end()) { snap = it->second; known=true; g_regions.erase(it); }
-    PIN_ReleaseLock(&g_regions_lock);
-
-    PIN_GetLock(&g_events_lock, tid);
-    if (eventsf) {
-        if (known) fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:free\n",
-                           (void*)snap.start, snap.size, snap.tag.c_str());
-        else       fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
-        fflush(eventsf);
-    }
-    if (tracef) {
-        if (known) {
-            fprintf(tracef,
-                    "T%u free  start=%p size=%zu tag=%s site=libc:free\n",
-                    (unsigned)tid,
-                    (void*)snap.start, snap.size, snap.tag.c_str());
-        } else {
-            fprintf(tracef,
-                    "T%u free  start=%p tag=? site=libc:free\n",
-                    (unsigned)tid, (void*)p);
-        }
-        fflush(tracef);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-}*/
-
 static VOID BeforeFree(ADDRINT p) {
     if (!p) return;
     THREADID tid = PIN_ThreadId();
@@ -961,82 +872,19 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz)
 }
 
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
-/*static VOID HookLibcAllocators(IMG img) {
-    if (!KnobUseLibcHooks.Value()) return;
-    if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return; // typically libc is shared
-
-    RTN r;
-
-    r = RTN_FindByName(img, "malloc");
-    if (RTN_Valid(r)) {
-        RTN_Open(r);
-        PROTO p = PROTO_Allocate(PIN_PARG(void*), CALLINGSTD_DEFAULT, "malloc",
-            PIN_PARG(size_t), PIN_PARG_END());
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMalloc),
-            IARG_FUNCRET_EXITPOINT_VALUE,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
-        PROTO_Free(p);
-        RTN_Close(r);
-        PIN_GetLock(&g_events_lock, 0);
-        if (logf) { fprintf(logf, "[HOOK] libc malloc in %s\n", IMG_Name(img).c_str()); fflush(logf); }
-        PIN_ReleaseLock(&g_events_lock);
-    }
-
-    r = RTN_FindByName(img, "calloc");
-    if (RTN_Valid(r)) {
-        RTN_Open(r);
-        PROTO p = PROTO_Allocate(PIN_PARG(void*), CALLINGSTD_DEFAULT, "calloc",
-            PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
-            IARG_FUNCRET_EXITPOINT_VALUE,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_END);
-        PROTO_Free(p);
-        RTN_Close(r);
-        PIN_GetLock(&g_events_lock, 0);
-        if (logf) { fprintf(logf, "[HOOK] libc calloc in %s\n", IMG_Name(img).c_str()); fflush(logf); }
-        PIN_ReleaseLock(&g_events_lock);
-    }
-
-    r = RTN_FindByName(img, "realloc");
-    if (RTN_Valid(r)) {
-        RTN_Open(r);
-        PROTO p = PROTO_Allocate(PIN_PARG(void*), CALLINGSTD_DEFAULT, "realloc",
-            PIN_PARG(void*), PIN_PARG(size_t), PIN_PARG_END());
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
-            IARG_FUNCRET_EXITPOINT_VALUE,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0, // old ptr
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_END);
-        PROTO_Free(p);
-        RTN_Close(r);
-        PIN_GetLock(&g_events_lock, PIN_ThreadId());
-        if (logf) { fprintf(logf, "[HOOK] libc realloc in %s\n", IMG_Name(img).c_str()); fflush(logf); }
-        PIN_ReleaseLock(&g_events_lock);
-    }
-
-    r = RTN_FindByName(img, "free");
-    if (RTN_Valid(r)) {
-        RTN_Open(r);
-        PROTO p = PROTO_Allocate(PIN_PARG(void), CALLINGSTD_DEFAULT, "free",
-            PIN_PARG(void*), PIN_PARG_END());
-        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeFree),
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
-        PROTO_Free(p);
-        RTN_Close(r);
-        PIN_GetLock(&g_events_lock, PIN_ThreadId());
-        if (logf) { fprintf(logf, "[HOOK] libc free in %s\n", IMG_Name(img).c_str()); fflush(logf); }
-        PIN_ReleaseLock(&g_events_lock);
-    }
-}*/
-
 static VOID HookLibcAllocators(IMG img) {
     if (!KnobUseLibcHooks.Value()) return;
-    if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return;
+    //if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return;
 
     // Προαιρετικό αλλά χρήσιμο: κάνε hook μόνο στη libc
     // (μειώνει θόρυβο αν άλλα libs έχουν "malloc" symbols)
+    //const string imgName = IMG_Name(img);
+    //if (imgName.find("libc.so") == string::npos) return;
+
     const string imgName = IMG_Name(img);
-    if (imgName.find("libc.so") == string::npos) return;
+    if (imgName.find("ld-linux") != string::npos) return;
+    if (imgName.find("libpindwarf") != string::npos) return;
+    if (imgName.find("pin") != string::npos && imgName.find("/pin/") != string::npos) return;
 
     auto LogHook = [&](const char* what) {
         PIN_GetLock(&g_events_lock, 0);
@@ -1177,54 +1025,7 @@ static VOID HookLibcAllocators(IMG img) {
             }
         }
     }
-
-        /*// mmap/munmap/mremap are crucial for workloads like memcached
-        {
-            RTN r = RTN_FindByName(img, "mmap");
-            if (RTN_Valid(r) && TryMarkHooked(r)) {
-                RTN_Open(r);
-                // mmap(addr, length, prot, flags, fd, offset) -> ret
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMmap),
-                    IARG_FUNCRET_EXITPOINT_VALUE,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // length
-                    IARG_END);
-                RTN_Close(r);
-                LogHook("mmap");
-            }
-        }
-    
-        {
-            RTN r = RTN_FindByName(img, "munmap");
-            if (RTN_Valid(r) && TryMarkHooked(r)) {
-                RTN_Open(r);
-                // munmap(addr, length) -> int rc
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMunmap),
-                    IARG_FUNCRET_EXITPOINT_VALUE,       // rc
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // addr
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // length
-                    IARG_END);
-                RTN_Close(r);
-                LogHook("munmap");
-            }
-        }
-    
-        {
-            RTN r = RTN_FindByName(img, "mremap");
-            if (RTN_Valid(r) && TryMarkHooked(r)) {
-                RTN_Open(r);
-                // mremap(old_address, old_size, new_size, flags, ...) -> ret
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMremap),
-                    IARG_FUNCRET_EXITPOINT_VALUE,       // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // oldp
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // oldsz
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,   // newsz
-                    IARG_END);
-                RTN_Close(r);
-                LogHook("mremap");
-            }
-        }*/
-
-        // mmap / munmap / mremap (memcached often uses these via libc)
+    // ---------------- mmap/munmap/mremap hooks ----------------
 {
     // mmap variants
     for (const char* sym : {"mmap", "mmap64", "__mmap"}) {
@@ -1322,6 +1123,7 @@ static VOID Fini(INT32, VOID*) {
     PIN_ReleaseLock(&g_events_lock);
 }
 
+
 // ------------------------------ main -----------------------------
 // dilwnei ta call backs kai arxizei to Pin.
 int main(int argc, char* argv[]) {
@@ -1339,6 +1141,16 @@ int main(int argc, char* argv[]) {
     eventsf = fopen("pinatrace.events", "w");  // κρατάμε το events όπως πριν
     tracef  = fopen("pinatrace.out", "w");     // ΕΝΙΑΙΟ trace file
 
+    if (tracef) {
+        fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
+        fprintf(tracef, "#START pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        fflush(tracef);
+    }
+    if (logf) {
+        fprintf(logf, "[START] pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        fflush(logf);
+    }
+
     // Callbacks
     IMG_AddInstrumentFunction(ImageLoad, 0);
     INS_AddInstrumentFunction(Instruction, 0);
@@ -1346,6 +1158,7 @@ int main(int argc, char* argv[]) {
     PIN_AddThreadFiniFunction(ThreadFini, 0);
     PIN_AddFiniFunction(Fini, 0);
     
+    PIN_InterceptSignal(SIGUSR2, OnSigUsr2, 0);
     PIN_StartProgram(); // never returns
     return 0;
 }
