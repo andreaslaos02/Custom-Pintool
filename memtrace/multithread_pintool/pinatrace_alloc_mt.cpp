@@ -181,8 +181,13 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     if (off >= snap.size) return;
 
     PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef, "T%u %p: load  %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
+    /*fprintf(tracef, "T%u %p: load  %p tag=%s off=%zu\n",
+            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);*/
+    fprintf(tracef,
+            "T%u %p: load  base: %p full: %p tag=%s off=%zu\n",
+            (unsigned)tid, ip,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off);
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -197,8 +202,13 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (off >= snap.size) return;
 
     PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef, "T%u %p: store %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);
+    /*fprintf(tracef, "T%u %p: store %p tag=%s off=%zu\n",
+            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);*/
+    fprintf(tracef,
+                "T%u %p: store base: %p full: %p tag=%s off=%zu\n",
+                (unsigned)tid, ip,
+                (void*)snap.start, (void*)a,
+                snap.tag.c_str(), off);
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -687,7 +697,7 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
         const Region &r = it->second;
         if (a >= r.start && a < (r.start + r.size)) {
             out = r;
-            off = (size_t)(a - r.start);
+            off = (size_t)(a - r.start);        //return offset here instead of calculatig in RecordRead/Write.
             found = true;
         }
     }

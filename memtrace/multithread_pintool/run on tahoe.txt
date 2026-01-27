@@ -1,3 +1,5 @@
+PIN ON DS_DEMO:
+
 manually:
 
 export PIN_ROOT=$HOME/tools/pin
@@ -51,3 +53,81 @@ OR ME ALIAS
 build_mt: ginete to compile tou pintool (vriski to root)            - se KATHE allagi pu kanw
 
 run_mt: compile kai link to pintool
+
+
+
+
+RUN MEMCACHED
+/usr/bin/memcached -p 11211 -t 4 -m 64 -l 127.0.0.1
+
+OR
+
+/usr/bin/memcached -p 11211 -t 4 -m 64 -vv
+
+
+
+
+PIN ON MEMCACHED:
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+
+rm -f pintool.log pinatrace.out pinatrace.events
+
+build_mt
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+
+$PIN_ROOT/pin -t ./obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1 -- \
+  /usr/bin/memcached -p 11211 -t 4 -m 64 -vv
+
+OR 
+
+$PIN_ROOT/pin -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so \
+  -use_libc_hooks 1 -- \
+  /usr/bin/memcached -p 11211 -t 4 -m 64 -l 127.0.0.1
+
+
+
+
+RUN GENERATOR
+
+cd ~/memcache-perf
+
+# Quick sanity: server responds
+printf "version\r\n" | nc -N 127.0.0.1 11211
+
+# MICRO workload ~1s (1 thread, 1 connection, λίγα requests - 50)
+./mcperf -s 127.0.0.1 -T 1 -c 1 -t 1 -r 50 -u 0.50 --binary
+
+
+----------------------------------------------------------------------------------------------
+RUN LIKE VOLOS SAID WITH LOAD-ONLY AND NO-LOAD
+
+Terminal 1: (memcached)
+
+cd ~/repos/pintools/memtrace/multithread_pintool
+rm -f pinatrace.out pinatrace.events pintool.log pin.* *.out *.events
+
+/usr/bin/memcached -p 11211 -t 4 -m 64 -vv      //start memcached
+
+Terminal 2: (generator)
+
+cd ~/memcache-perf
+./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
+
+pidof memcached   //returns memcached pid
+
+cat /proc/sys/kernel/yama/ptrace_scope      //check permissions
+
+//if 1 or 2:
+sudo sysctl -w kernel.yama.ptrace_scope=0     //change scope to dyamically attach pin
+
+//attach pin
+cd ~/repos/pintools/memtrace/multithread_pintool
+$PIN_ROOT/pin -pid 12345 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
+
+//change scope back to normal:
+sudo sysctl -w kernel.yama.ptrace_scope=1
+
+Terminal 1: ctrl + c
+----------------------------------------------------------------------------------------------
