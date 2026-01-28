@@ -140,7 +140,7 @@ cd ~/memcache-perf
 
 
 ----------------------------------------------------------------------------------------------
-RUN LIKE VOLOS SAID WITH LOAD-ONLY AND NO-LOAD
+RUN LIKE PROFESSOR SAID WITH LOAD-ONLY AND NO-LOAD
 
 Terminal 1: (memcached)
 
@@ -163,7 +163,7 @@ sudo sysctl -w kernel.yama.ptrace_scope=0     //change scope to dyamically attac
 
 //attach pin
 cd ~/repos/pintools/memtrace/multithread_pintool
-$PIN_ROOT/pin -pid 12345 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
+$PIN_ROOT/pin -pid 1099791 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
 
 //no-load 
 cd ~/memcache-perf
