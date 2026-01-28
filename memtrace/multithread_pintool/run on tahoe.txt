@@ -163,7 +163,7 @@ sudo sysctl -w kernel.yama.ptrace_scope=0     //change scope to dyamically attac
 
 //attach pin
 cd ~/repos/pintools/memtrace/multithread_pintool
-$PIN_ROOT/pin -pid 1099791 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
+$PIN_ROOT/pin -pid 1101674 -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so -use_libc_hooks 1
 
 //no-load 
 cd ~/memcache-perf

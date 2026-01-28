@@ -609,6 +609,25 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
     }
 }
 
+// reallocarray(oldptr, nmemb, size) -> void*
+// treat like realloc(oldptr, nmemb*size)
+/*static VOID AfterReallocArray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t sz)
+{
+    size_t bytes = 0;
+
+    if (nmemb != 0 && sz != 0) {
+        // overflow guard
+        if (nmemb > (SIZE_MAX / sz)) {
+            bytes = 0;
+        } else {
+            bytes = nmemb * sz;
+        }
+    }
+
+    // reuse existing logic
+    AfterRealloc(ret, oldp, bytes);
+}*/
+
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
 {
     bool found = false;
@@ -637,6 +656,12 @@ static VOID BeforeFree(ADDRINT p) {
     Region snap;
     size_t off = 0;
 
+    /*bool inside_some_region = false;
+    Region snap;
+    Region container;
+    size_t off = 0;
+    size_t container_off = 0;*/
+
     PIN_GetLock(&g_regions_lock, tid);
 
     // 1) exact start
@@ -657,6 +682,11 @@ static VOID BeforeFree(ADDRINT p) {
                 snap = r;
                 off = (size_t)(p - r.start);
                 known_inside = true;
+
+                // extra diagnostics
+                /*container = r;
+                container_off = off;
+                inside_some_region = true;*/
 
                 // IMPORTANT:
                 // δεν κάνουμε erase εδώ, γιατί δεν ξέρουμε ποιο είναι το real start που πρέπει να φύγει
@@ -680,6 +710,13 @@ static VOID BeforeFree(ADDRINT p) {
         } else {
             //fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
             fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free\n", (void*)p);
+            /*if (inside_some_region) {
+                fprintf(eventsf,
+                    "ANOMALY free_unknown_inside ptr=%p container_start=%p container_size=%zu container_tag=%s off=%zu site=libc:free\n",
+                    (void*)p, (void*)container.start, container.size, container.tag.c_str(), container_off);
+            } else {
+                fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free\n", (void*)p);
+            }*/
         }
         fflush(eventsf);
     }
@@ -694,9 +731,17 @@ static VOID BeforeFree(ADDRINT p) {
                     "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
                     (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
         } else {
-            fprintf(tracef,
+            fprintf(tracef,"T%u free  start=%p tag=? site=libc:free\n",(unsigned)tid, (void*)p);
+            /*if (inside_some_region) {
+                fprintf(tracef,
+                    "T%u ANOMALY free_unknown_inside ptr=%p container_start=%p container_size=%zu container_tag=%s off=%zu site=libc:free\n",
+                    (unsigned)tid, (void*)p,
+                    (void*)container.start, container.size, container.tag.c_str(), container_off);
+            } else {
+                fprintf(tracef,
                     "T%u free  start=%p tag=? site=libc:free\n",
                     (unsigned)tid, (void*)p);
+            }*/
         }
         fflush(tracef);
     }
@@ -969,9 +1014,31 @@ static VOID HookLibcAllocators(IMG img) {
         }
     }
 
+    // reallocarray: (oldptr, nmemb, size)
+/*{
+    RTN r = RTN_FindByName(img, "reallocarray");
+    if (RTN_Valid(r)) {
+        if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocArray),
+                IARG_FUNCRET_EXITPOINT_VALUE,        // ret
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,    // oldptr
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,    // nmemb
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 2,    // size
+                IARG_END);
+            RTN_Close(r);
+            LogHook("reallocarray");
+        }
+    }
+}*/
+
     // free: before (ptr)
     HookBefore1("free",        AFUNPTR(BeforeFree));
     HookBefore1("__libc_free", AFUNPTR(BeforeFree));
+
+    // cfree variants (some paths use cfree instead of free)
+    HookBefore1("cfree",   AFUNPTR(BeforeFree));
+    HookBefore1("__cfree", AFUNPTR(BeforeFree));
 
     // aligned / other allocators
     HookAfterRet2("aligned_alloc", AFUNPTR(AfterAlignedAlloc));
