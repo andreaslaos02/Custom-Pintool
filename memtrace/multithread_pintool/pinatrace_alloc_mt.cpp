@@ -229,7 +229,7 @@ static VOID Instruction(INS ins, VOID*) {
 // They update the region map and log events.
 
 static VOID CallAllocSite(VOID* ptr, size_t size, const char* type_tag,
-    const char* func, const char* file, int line)
+    const char* func, const char* file, int line,ADDRINT caller_ip)
 {
     THREADID tid = PIN_ThreadId(); // thread που κάνει το alloc
 
@@ -269,31 +269,31 @@ if (overlapFound) {
     if (tracef) {
         fprintf(tracef,
             "T%u ANOMALY alloc_overlap new_start=%p new_size=%zu new_tag=%s "
-            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s)\n",
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s) pc=%p\n",
             (unsigned)tid,
             (void*)r.start, r.size, r.tag.c_str(),
             (void*)ov.start, ov.size, ov.tag.c_str(),
-            file ? file : "?", line, func ? func : "?");
+            file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(tracef);
     }
 
     if (eventsf) {
         fprintf(eventsf,
             "ANOMALY alloc_overlap new_start=%p new_size=%zu new_tag=%s "
-            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s)\n",
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s) pc=%p\n",
             (void*)r.start, r.size, r.tag.c_str(),
             (void*)ov.start, ov.size, ov.tag.c_str(),
-            file ? file : "?", line, func ? func : "?");
+            file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(eventsf);
     }
 
     if (logf) {
         fprintf(logf,
             "[ANOMALY] alloc_overlap new_start=%p new_size=%zu new_tag=%s "
-            "overlap_start=%p overlap_size=%zu overlap_tag=%s @%s:%d (%s)\n",
+            "overlap_start=%p overlap_size=%zu overlap_tag=%s @%s:%d (%s) pc=%p\n",
             (void*)r.start, r.size, r.tag.c_str(),
             (void*)ov.start, ov.size, ov.tag.c_str(),
-            file ? file : "?", line, func ? func : "?");
+            file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(logf);
     }
 
@@ -306,22 +306,22 @@ if (overlapFound) {
 
     if (tracef) {
         fprintf(tracef,
-                "T%u alloc start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+                "T%u alloc start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                 (unsigned)tid,
                 (void*)r.start, r.size, r.tag.c_str(),
-                file ? file : "?", line, func ? func : "?");
+                file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(tracef);
     }
 
     if (logf) {
-        fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s)\n",
-                ptr, size, tag, file ? file : "?", line, func ? func : "?");
+        fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s) pc=%p\n",
+                ptr, size, tag, file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(logf);
     }
     if (eventsf) {
-        fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+        fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                 (void*)r.start, r.size, r.tag.c_str(),
-                file ? file : "?", line, func ? func : "?");
+                file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(eventsf);
     }
 
@@ -330,7 +330,7 @@ if (overlapFound) {
 
 
 static VOID CallFreeSite(VOID* ptr, const char* type_tag,
-    const char* func, const char* file, int line)
+    const char* func, const char* file, int line,ADDRINT caller_ip)
 {
     THREADID tid = PIN_ThreadId();
 
@@ -365,36 +365,36 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
     if (tracef) {
         if (known) {
             fprintf(tracef,
-                    "T%u free  start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+                    "T%u free  start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                     (unsigned)tid,
                     (void*)snap.start, snap.size, snap.tag.c_str(),
-                    file ? file : "?", line, func ? func : "?");
+                    file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         } else {
             fprintf(tracef,
-                    "T%u free  start=%p tag=%s site=%s:%d (%s) UNKNOWN_REGION\n",
+                    "T%u free  start=%p tag=%s site=%s:%d (%s) pc=%p UNKNOWN_REGION\n",
                     (unsigned)tid,
                     ptr, tag,
-                    file ? file : "?", line, func ? func : "?");
+                    file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         }
         fflush(tracef);
     }
 
     if (logf) {
-        fprintf(logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s\n",
+        fprintf(logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s pc=%p\n",
                 ptr, tag,
                 file ? file : "?", line, func ? func : "?",
-                known ? "" : " (UNKNOWN)");
+                known ? "" : " (UNKNOWN)",(void*)caller_ip) ;
         fflush(logf);
     }
     if (eventsf) {
         if (known) {
-            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=%s:%d (%s)\n",
+            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                     (void*)snap.start, snap.size, snap.tag.c_str(),
-                    file ? file : "?", line, func ? func : "?");
+                    file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         } else {
-            fprintf(eventsf, "free  start=%p tag=%s site=%s:%d (%s)\n",
+            fprintf(eventsf, "free  start=%p tag=%s site=%s:%d (%s) pc=%p\n",
                     ptr, tag,
-                    file ? file : "?", line, func ? func : "?");
+                    file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         }
         fflush(eventsf);
     }
@@ -409,7 +409,7 @@ static VOID BeforeAllocSite(THREADID tid,
     const char* type_tag,
     const char* func,
     const char* file,
-    int line)
+    int line,ADDRINT caller_ip)
 {
     ThreadCtx* tc = CTX(tid);
     if (!tc) return;
@@ -420,6 +420,7 @@ static VOID BeforeAllocSite(THREADID tid,
     tc->pendingFunc      = func;
     tc->pendingFile      = file;
     tc->pendingLine      = line;
+    tc->pendingCallerIp = caller_ip;
 }
 
 // AFTER: παίρνουμε το πραγματικό ptr (return value) και κάνουμε register το region
@@ -436,9 +437,11 @@ static VOID AfterAllocSite(THREADID tid, VOID* retptr)
                   tc->pendingTypeTag,
                   tc->pendingFunc,
                   tc->pendingFile,
-                  tc->pendingLine);
+                  tc->pendingLine,
+                  tc->pendingCallerIp);
 
     tc->hasPendingAlloc = false; // cleanup
+    tc->pendingCallerIp = 0;    //cleanup
 }
 
 
@@ -479,6 +482,7 @@ static VOID HookDummySites(IMG img)
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 3, // func
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 4, // file
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 5, // line
+                    IARG_RETURN_IP,
                     IARG_END);
 
                 // AFTER: παίρνουμε το πραγματικό return value (malloc ptr)
@@ -524,6 +528,7 @@ static VOID HookDummySites(IMG img)
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 2, // func
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 3, // file
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 4, // line
+                    IARG_RETURN_IP,
                     IARG_END);
                 RTN_Close(r);
                 PROTO_Free(pFree);
@@ -543,94 +548,120 @@ static VOID HookDummySites(IMG img)
 
 // ----------------- Optional glibc malloc/free hooks --------------
 // otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
-static VOID AfterMalloc(ADDRINT ret, size_t sz) {
+static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (!ret || sz == 0) return;
     THREADID tid = PIN_ThreadId();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = sz; r.tag = "heap"; //r.freed = false;
+    Region r; r.start = ret; r.size = sz; r.tag = "heap";
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
     if (eventsf) {
-        fprintf(eventsf, "alloc start=%p size=%zu tag=heap site=libc:malloc\n", (void*)ret, sz);
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap site=libc:malloc pc=%p\n",
+                (void*)ret, sz, (void*)caller_ip);
         fflush(eventsf);
     }
     if (tracef) {
         fprintf(tracef,
-                "T%u alloc start=%p size=%zu tag=heap site=libc:malloc\n",
-                (unsigned)tid, (void*)ret, sz);
+                "T%u alloc start=%p size=%zu tag=heap site=libc:malloc pc=%p\n",
+                (unsigned)tid, (void*)ret, sz, (void*)caller_ip);
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz) {
-    if (!ret || n==0 || sz==0) return;
-    const size_t bytes = n*sz;
+static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
+    if (!ret || n == 0 || sz == 0) return;
+    size_t bytes = n * sz;
     THREADID tid = PIN_ThreadId();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc"; //r.freed = false;
+    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc";
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
     if (eventsf) {
-        fprintf(eventsf, "alloc start=%p size=%zu tag=heap:calloc site=libc:calloc\n",
-                (void*)ret, bytes);
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap:calloc site=libc:calloc pc=%p\n",
+                (void*)ret, bytes, (void*)caller_ip);
         fflush(eventsf);
     }
     if (tracef) {
         fprintf(tracef,
-                "T%u alloc start=%p size=%zu tag=heap:calloc site=libc:calloc\n",
-                (unsigned)tid, (void*)ret, bytes);
+                "T%u alloc start=%p size=%zu tag=heap:calloc site=libc:calloc pc=%p\n",
+                (unsigned)tid, (void*)ret, bytes, (void*)caller_ip);
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
+static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
     THREADID tid = PIN_ThreadId();
 
+    // old pointer gets freed (semantically)
     if (oldp) {
+        bool known = false;
+        Region snap;
+
         PIN_GetLock(&g_regions_lock, tid);
-        //auto it = g_regions.find(oldp);
-        //if (it != g_regions.end()) it->second.freed = true;
         auto it = g_regions.find(oldp);
-        if (it != g_regions.end()) g_regions.erase(it);
+        if (it != g_regions.end()) {
+            snap = it->second;
+            known = true;
+            g_regions.erase(it);
+        }
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
         if (eventsf) {
-            fprintf(eventsf, "free  start=%p tag=heap site=libc:realloc(old)\n", (void*)oldp);
+            if (known) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=libc:realloc(old) pc=%p\n",
+                        (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=UNKNOWN site=libc:realloc(old) pc=%p\n",
+                        (void*)oldp, (void*)caller_ip);
+            }
             fflush(eventsf);
         }
         if (tracef) {
-            fprintf(tracef,
-                    "T%u free  start=%p tag=heap site=libc:realloc(old)\n",
-                    (unsigned)tid, (void*)oldp);
+            if (known) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=libc:realloc(old) pc=%p\n",
+                        (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=libc:realloc(old) pc=%p\n",
+                        (unsigned)tid, (void*)oldp, (void*)caller_ip);
+            }
             fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
     }
+
+    // new allocation
     if (ret && sz) {
         PIN_GetLock(&g_regions_lock, tid);
-        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc"; //r.freed = false;
+        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc";
         g_regions[ret] = r;
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
         if (eventsf) {
-            fprintf(eventsf, "alloc start=%p size=%zu tag=heap:realloc site=libc:realloc\n",
-                    (void*)ret, sz);
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=heap:realloc site=libc:realloc pc=%p\n",
+                    (void*)ret, sz, (void*)caller_ip);
             fflush(eventsf);
         }
         if (tracef) {
             fprintf(tracef,
-                    "T%u alloc start=%p size=%zu tag=heap:realloc site=libc:realloc\n",
-                    (unsigned)tid, (void*)ret, sz);
+                    "T%u alloc start=%p size=%zu tag=heap:realloc site=libc:realloc pc=%p\n",
+                    (unsigned)tid, (void*)ret, sz, (void*)caller_ip);
             fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
@@ -655,7 +686,7 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
     return found;
 }
 
-static VOID BeforeFree(ADDRINT p) {
+static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     if (!p) return;
     THREADID tid = PIN_ThreadId();
 
@@ -699,15 +730,15 @@ static VOID BeforeFree(ADDRINT p) {
 
     if (eventsf) {
         if (known_exact) {
-            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:free\n",
-                    (void*)snap.start, snap.size, snap.tag.c_str());
+            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:free pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(),(void*)caller_ip);
         } else if (known_inside) {
             fprintf(eventsf,
-                    "ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
-                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
+                    "ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free pc=%p\n",
+                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off, (void*)caller_ip);
         } else {
             //fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
-            fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free\n", (void*)p);
+            fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free pc=%p\n", (void*)p, (void*)caller_ip);
         }
         fflush(eventsf);
     }
@@ -715,16 +746,16 @@ static VOID BeforeFree(ADDRINT p) {
     if (tracef) {
         if (known_exact) {
             fprintf(tracef,
-                    "T%u free  start=%p size=%zu tag=%s site=libc:free\n",
-                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str());
+                    "T%u free  start=%p size=%zu tag=%s site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
         } else if (known_inside) {
             fprintf(tracef,
-                    "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
-                    (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
+                    "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off, (void*)caller_ip);
         } else {
             fprintf(tracef,
-                    "T%u free  start=%p tag=? site=libc:free\n",
-                    (unsigned)tid, (void*)p);
+                    "T%u free  start=%p tag=? site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)p, (void*)caller_ip);
         }
         fflush(tracef);
     }
@@ -735,42 +766,42 @@ static VOID BeforeFree(ADDRINT p) {
 // ---------- Extra libc hooks for better coverage ----------
 
 // aligned_alloc(size_t alignment, size_t size) -> void*
-static VOID AfterAlignedAlloc(ADDRINT ret, size_t alignment, size_t sz) {
+static VOID AfterAlignedAlloc(ADDRINT ret, size_t alignment, size_t sz, ADDRINT caller_ip) {
     (void)alignment;
-    AfterMalloc(ret, sz);
+    AfterMalloc(ret, sz, caller_ip);
 }
 
 // memalign(size_t alignment, size_t size) -> void*
-static VOID AfterMemalign(ADDRINT ret, size_t alignment, size_t sz) {
+static VOID AfterMemalign(ADDRINT ret, size_t alignment, size_t sz, ADDRINT caller_ip) {
     (void)alignment;
-    AfterMalloc(ret, sz);
+    AfterMalloc(ret, sz, caller_ip);
 }
 
 // valloc(size_t size) -> void*
-static VOID AfterValloc(ADDRINT ret, size_t sz) {
-    AfterMalloc(ret, sz);
+static VOID AfterValloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
+    AfterMalloc(ret, sz, caller_ip);
 }
 
 // pvalloc(size_t size) -> void*
-static VOID AfterPvalloc(ADDRINT ret, size_t sz) {
-    AfterMalloc(ret, sz);
+static VOID AfterPvalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
+    AfterMalloc(ret, sz, caller_ip);
 }
 
 // posix_memalign(void** memptr, size_t alignment, size_t size) -> int
-static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, size_t sz) {
+static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, size_t sz, ADDRINT caller_ip) {
     (void)alignment;
     if (rc != 0) return;
     void** memptr = (void**)memptr_ptr;
     if (!memptr) return;
     void* p = *memptr;
     if (!p || sz == 0) return;
-    AfterMalloc((ADDRINT)p, sz);
+    AfterMalloc((ADDRINT)p, sz, caller_ip);
 }
 
-// ---------------- mmap/munmap/mremap hooks (IMPORTANT for memcached) ----------------
+// ---------------- mmap/munmap/mremap hooks (with caller pc) ----------------
 
 // mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) -> void*
-static VOID AfterMmap(ADDRINT ret, size_t length)
+static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 {
     if (!ret || ret == (ADDRINT)-1 || length == 0) return;
     THREADID tid = PIN_ThreadId();
@@ -782,19 +813,22 @@ static VOID AfterMmap(ADDRINT ret, size_t length)
 
     PIN_GetLock(&g_events_lock, tid);
     if (eventsf) {
-        fprintf(eventsf, "alloc start=%p size=%zu tag=mmap site=libc:mmap\n", (void*)ret, length);
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=mmap site=libc:mmap pc=%p\n",
+                (void*)ret, length, (void*)caller_ip);
         fflush(eventsf);
     }
     if (tracef) {
-        fprintf(tracef, "T%u alloc start=%p size=%zu tag=mmap site=libc:mmap\n",
-                (unsigned)tid, (void*)ret, length);
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=mmap site=libc:mmap pc=%p\n",
+                (unsigned)tid, (void*)ret, length, (void*)caller_ip);
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
 
 // munmap(void *addr, size_t length) -> int
-static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length)
+static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
 {
     if (rc != 0) return;
     if (!addr || length == 0) return;
@@ -814,41 +848,74 @@ static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length)
 
     PIN_GetLock(&g_events_lock, tid);
     if (eventsf) {
-        if (known) fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:munmap\n",
-                           (void*)snap.start, snap.size, snap.tag.c_str());
-        else       fprintf(eventsf, "free  start=%p tag=? site=libc:munmap\n", (void*)addr);
+        if (known) {
+            fprintf(eventsf,
+                    "free  start=%p size=%zu tag=%s site=libc:munmap pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+        } else {
+            fprintf(eventsf,
+                    "free  start=%p tag=? site=libc:munmap pc=%p\n",
+                    (void*)addr, (void*)caller_ip);
+        }
         fflush(eventsf);
     }
     if (tracef) {
-        if (known) fprintf(tracef, "T%u free  start=%p size=%zu tag=%s site=libc:munmap\n",
-                           (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str());
-        else       fprintf(tracef, "T%u free  start=%p tag=? site=libc:munmap\n",
-                           (unsigned)tid, (void*)addr);
+        if (known) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=libc:munmap pc=%p\n",
+                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=? site=libc:munmap pc=%p\n",
+                    (unsigned)tid, (void*)addr, (void*)caller_ip);
+        }
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
 
 // mremap(void *old_address, size_t old_size, size_t new_size, int flags, ...) -> void*
-static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz)
+static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip)
 {
     THREADID tid = PIN_ThreadId();
 
     // remove old mapping if we tracked it
     if (oldp) {
+        bool known_old = false;
+        Region snap_old;
+
         PIN_GetLock(&g_regions_lock, tid);
         auto it = g_regions.find(oldp);
-        if (it != g_regions.end()) g_regions.erase(it);
+        if (it != g_regions.end()) {
+            snap_old = it->second;
+            known_old = true;
+            g_regions.erase(it);
+        }
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
         if (eventsf) {
-            fprintf(eventsf, "free  start=%p tag=mmap site=libc:mremap(old)\n", (void*)oldp);
+            if (known_old) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=libc:mremap(old) pc=%p\n",
+                        (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=mmap site=libc:mremap(old) pc=%p\n",
+                        (void*)oldp, (void*)caller_ip);
+            }
             fflush(eventsf);
         }
         if (tracef) {
-            fprintf(tracef, "T%u free  start=%p tag=mmap site=libc:mremap(old)\n",
-                    (unsigned)tid, (void*)oldp);
+            if (known_old) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=libc:mremap(old) pc=%p\n",
+                        (unsigned)tid, (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=mmap site=libc:mremap(old) pc=%p\n",
+                        (unsigned)tid, (void*)oldp, (void*)caller_ip);
+            }
             fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
@@ -863,12 +930,15 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz)
 
         PIN_GetLock(&g_events_lock, tid);
         if (eventsf) {
-            fprintf(eventsf, "alloc start=%p size=%zu tag=mremap site=libc:mremap\n", (void*)ret, newsz);
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=mremap site=libc:mremap pc=%p\n",
+                    (void*)ret, newsz, (void*)caller_ip);
             fflush(eventsf);
         }
         if (tracef) {
-            fprintf(tracef, "T%u alloc start=%p size=%zu tag=mremap site=libc:mremap\n",
-                    (unsigned)tid, (void*)ret, newsz);
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=mremap site=libc:mremap pc=%p\n",
+                    (unsigned)tid, (void*)ret, newsz, (void*)caller_ip);
             fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
@@ -904,6 +974,7 @@ static VOID HookLibcAllocators(IMG img) {
         RTN_InsertCall(r, IPOINT_AFTER, fn,
             IARG_FUNCRET_EXITPOINT_VALUE,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_RETURN_IP,
             IARG_END);
         RTN_Close(r);
         LogHook(sym);
@@ -919,6 +990,7 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_FUNCRET_EXITPOINT_VALUE,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+            IARG_RETURN_IP,
             IARG_END);
         RTN_Close(r);
         LogHook(sym);
@@ -932,6 +1004,7 @@ static VOID HookLibcAllocators(IMG img) {
         RTN_Open(r);
         RTN_InsertCall(r, IPOINT_BEFORE, fn,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_RETURN_IP,
             IARG_END);
         RTN_Close(r);
         LogHook(sym);
@@ -952,6 +1025,7 @@ static VOID HookLibcAllocators(IMG img) {
                     IARG_FUNCRET_EXITPOINT_VALUE,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_RETURN_IP,
                     IARG_END);
                 RTN_Close(r);
                 LogHook("calloc");
@@ -965,6 +1039,7 @@ static VOID HookLibcAllocators(IMG img) {
                     IARG_FUNCRET_EXITPOINT_VALUE,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_RETURN_IP,
                     IARG_END);
                 RTN_Close(r);
                 LogHook("__libc_calloc");
@@ -982,6 +1057,7 @@ static VOID HookLibcAllocators(IMG img) {
                 IARG_FUNCRET_EXITPOINT_VALUE,
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook("realloc");
@@ -995,6 +1071,7 @@ static VOID HookLibcAllocators(IMG img) {
                 IARG_FUNCRET_EXITPOINT_VALUE,
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook("__libc_realloc");
@@ -1023,6 +1100,7 @@ static VOID HookLibcAllocators(IMG img) {
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,             // void** memptr
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,             // alignment
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 2,             // size
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook("posix_memalign");
@@ -1040,6 +1118,7 @@ static VOID HookLibcAllocators(IMG img) {
             RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMmap),
                 IARG_FUNCRET_EXITPOINT_VALUE,          // ret
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // length
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook(sym);
@@ -1056,6 +1135,7 @@ static VOID HookLibcAllocators(IMG img) {
                 IARG_FUNCRET_EXITPOINT_VALUE,          // rc
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // addr
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // length
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook(sym);
@@ -1073,6 +1153,7 @@ static VOID HookLibcAllocators(IMG img) {
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // oldp
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // oldsz
                 IARG_FUNCARG_ENTRYPOINT_VALUE, 2,      // newsz
+                IARG_RETURN_IP,
                 IARG_END);
             RTN_Close(r);
             LogHook(sym);
