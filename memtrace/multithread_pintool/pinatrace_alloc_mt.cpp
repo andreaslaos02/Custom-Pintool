@@ -8,6 +8,7 @@
 #include <unistd.h>   // getpid
 #include <set>
 #include <signal.h>
+#include <limits>
 
 using std::string;
 
@@ -894,6 +895,29 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
     }
 }
 
+
+// reallocarray(old_ptr, nmemb, size) -> new_ptr
+static VOID AfterReallocarray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip)
+{
+    // overflow-safe multiply: bytes = nmemb * elemsz
+    size_t bytes = 0;
+
+    if (nmemb != 0 && elemsz != 0) {
+        if (nmemb > (std::numeric_limits<size_t>::max() / elemsz)) {
+            // overflow: η reallocarray θα αποτύχει (ret==NULL) συνήθως.
+            // Δεν κάνουμε update map για να μη διαλύσουμε state.
+            // Προαιρετικά μπορείς να γράψεις log/anomaly εδώ.
+            return;
+        }
+        bytes = nmemb * elemsz;
+    } else {
+        bytes = 0; // reallocarray(...,0,...) => bytes=0 (συμπεριφορά τύπου realloc)
+    }
+
+    // Χρησιμοποίησε την ήδη υπάρχουσα λογική σου για realloc
+    AfterRealloc(ret, oldp, bytes, caller_ip);
+}
+
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
 {
     bool found = false;
@@ -1638,6 +1662,27 @@ static VOID HookLibcAllocators(IMG img) {
             }
         }
     }
+
+        // reallocarray: (oldptr, nmemb, size)
+        {
+            for (const char* sym : {"reallocarray", "__libc_reallocarray"}) {
+                RTN r = RTN_FindByName(img, sym);
+                if (RTN_Valid(r)) {
+                    if (TryMarkHooked(r)) {
+                        RTN_Open(r);
+                        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
+                            IARG_FUNCRET_EXITPOINT_VALUE,        // ret
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,    // oldp
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,    // nmemb
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,    // size
+                            IARG_RETURN_IP,                      // caller_ip
+                            IARG_END);
+                        RTN_Close(r);
+                        LogHook(sym);
+                    }
+                }
+            }
+        }
 
     // free: before (ptr)
     HookBefore1("free",        AFUNPTR(BeforeFree));
