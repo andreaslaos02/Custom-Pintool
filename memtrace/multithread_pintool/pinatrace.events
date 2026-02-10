@@ -1,65 +1,114 @@
-alloc start=0x55f840a652e0 size=18 tag=heap site=libc:malloc
-alloc start=0x7fc434010c70 size=3 tag=heap site=libc:malloc
-alloc start=0x7fc434014c80 size=3 tag=heap site=libc:malloc
-alloc start=0x55f840a67a70 size=2 tag=heap site=libc:malloc
-alloc start=0x55f840a64b30 size=18 tag=heap site=libc:malloc
-free  start=0x7fc43c01cf40 tag=UNKNOWN site=libc:free
-free  start=0x7fc434018c90 tag=UNKNOWN site=libc:free
-alloc start=0x55f840a64380 size=18 tag=heap site=libc:malloc
-free  start=0x7fc438010c50 tag=UNKNOWN site=libc:free
-free  start=0x7fc42c010c50 tag=UNKNOWN site=libc:free
-free  start=0x7fc430012420 tag=UNKNOWN site=libc:free
-free  start=0x7fc430010c00 tag=UNKNOWN site=libc:free
-free  start=0x7fc44068a010 tag=UNKNOWN site=libc:free
-free  start=0x7fc44068a000 tag=? site=libc:munmap
-free  start=0x7fc4300008e0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a666c0 tag=UNKNOWN site=libc:free
-free  start=0x7fc441eaf000 tag=? site=libc:munmap
-free  start=0x55f840a64e30 tag=UNKNOWN site=libc:free
-free  start=0x55f840a655e0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64680 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65d90 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64e10 tag=UNKNOWN site=libc:free
-free  start=0x55f840a655c0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64660 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65d70 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64fc0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65f20 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65770 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64810 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64940 tag=UNKNOWN site=libc:free
-free  start=0x55f840a658a0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a650f0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a66050 tag=UNKNOWN site=libc:free
-free  start=0x7fc43c010e60 tag=UNKNOWN site=libc:free
-free  start=0x7fc434010c50 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65f40 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65790 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64830 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64fe0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65ad0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a643c0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a64b70 tag=UNKNOWN site=libc:free
-free  start=0x55f840a65320 tag=UNKNOWN site=libc:free
-free  start=0x7fc43c0008e0 tag=UNKNOWN site=libc:free
-free  start=0x7fc4380008e0 tag=UNKNOWN site=libc:free
-free  start=0x7fc42c0008e0 tag=UNKNOWN site=libc:free
-free  start=0x7fc4340008e0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a667e0 tag=UNKNOWN site=libc:free
-free  start=0x7fc4416ae000 tag=? site=libc:munmap
-free  start=0x55f840a66900 tag=UNKNOWN site=libc:free
-free  start=0x7fc440ead000 tag=? site=libc:munmap
-free  start=0x55f840a66a20 tag=UNKNOWN site=libc:free
-free  start=0x7fc4406ac000 tag=? site=libc:munmap
-free  start=0x55f840a5b7c0 tag=UNKNOWN site=libc:free
-free  start=0x7fc4447e2000 tag=? site=libc:munmap
-free  start=0x55f840a5b610 tag=UNKNOWN site=libc:free
-free  start=0x55f840a5b5f0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a66b40 tag=UNKNOWN site=libc:free
-free  start=0x55f840a5b7a0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a67800 tag=UNKNOWN site=libc:free
-free  start=0x55f840a67a50 tag=UNKNOWN site=libc:free
-free  start=0x55f840a676f0 tag=UNKNOWN site=libc:free
-free  start=0x55f840a5b350 tag=UNKNOWN site=libc:free
-free  start=0x55f840a5b2a0 tag=UNKNOWN site=libc:free
+free  start=0x56492831a310 tag=UNKNOWN site=libc:free
+alloc start=0x7fd6d49d6000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6d453d000 size=528384 tag=mmap site=libc:mmap
+alloc start=0x7fd6d4486000 size=167936 tag=mmap site=libc:mmap
+free  start=0x564928323380 tag=UNKNOWN site=libc:free
+free  start=0x564928323b30 tag=UNKNOWN site=libc:free
+free  start=0x5649283242e0 tag=UNKNOWN site=libc:free
+free  start=0x564928324a90 tag=UNKNOWN site=libc:free
+alloc start=0x7fd6d3ae2000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6d2f44000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6caf23000 size=134217728 tag=mmap site=libc:mmap
+free  start=0x7fd6caf23000 size=134217728 tag=mmap site=libc:munmap
+alloc start=0x7fd6c2c0d000 size=134217728 tag=mmap site=libc:mmap
+alloc start=0x7fd6cb7ff000 size=8392704 tag=mmap site=libc:mmap
+free  start=0x7fd6d0000000 tag=? site=libc:munmap
+free  start=0x7fd6c2c0d000 size=134217728 tag=mmap site=libc:munmap
+alloc start=0x7fd6cc000be0 size=3 tag=heap site=libc:malloc
+free  start=0x7fd6c8000000 tag=? site=libc:munmap
+alloc start=0x7fd6d2372000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6d2331000 size=135168 tag=mmap site=libc:mmap
+alloc start=0x7fd6c4000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6bc000000 size=134217728 tag=mmap site=libc:mmap
+free  start=0x7fd6c0000000 tag=? site=libc:munmap
+alloc start=0x7fd6d1ffb000 size=135168 tag=mmap site=libc:mmap
+alloc start=0x7fd6bc000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6d1fda000 size=135168 tag=mmap site=libc:mmap
+alloc start=0x7fd6c0000000 size=67108864 tag=mmap site=libc:mmap
+alloc start=0x7fd6c0000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6d1f2d000 size=135168 tag=mmap site=libc:mmap
+alloc start=0x7fd6d172c000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6d0bff000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6d0085000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6ca40c000 size=8392704 tag=mmap site=libc:mmap
+alloc start=0x7fd6b4000000 size=134217728 tag=mmap site=libc:mmap
+free  start=0x7fd6b8000000 tag=? site=libc:munmap
+alloc start=0x7fd6cb052000 size=139264 tag=mmap site=libc:mmap
+alloc start=0x7fd6b4000be0 size=3 tag=heap site=libc:malloc
+alloc start=0x564928325ea0 size=3 tag=heap site=libc:malloc
+free  start=0x564928325e20 tag=UNKNOWN site=libc:free
+free  start=0x564928325ea0 size=3 tag=heap site=libc:free
+free  start=0x564928325c40 tag=UNKNOWN site=libc:free
+alloc start=0x564928325ea0 size=2 tag=heap site=libc:malloc
+free  start=0x564928325bf0 tag=UNKNOWN site=libc:free
+free  start=0x564928325b90 tag=UNKNOWN site=libc:free
+alloc start=0x564928324a90 size=18 tag=heap site=libc:malloc
+alloc start=0x7fd6cc010e80 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6cc014e90 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6c9cb0000 size=1052672 tag=mmap site=libc:mmap
+alloc start=0x7fd6cc018f30 size=3 tag=heap site=libc:malloc
+alloc start=0x5649283242e0 size=18 tag=heap site=libc:malloc
+alloc start=0x7fd6c4010c70 size=3 tag=heap site=libc:malloc
+alloc start=0x7fd6c4014c80 size=3 tag=heap site=libc:malloc
+alloc start=0x564928326a70 size=2 tag=heap site=libc:malloc
+alloc start=0x564928323b30 size=18 tag=heap site=libc:malloc
+alloc start=0x564928323380 size=18 tag=heap site=libc:malloc
+free  start=0x7fd6cc01cf40 tag=UNKNOWN site=libc:free
+free  start=0x7fd6c4018c90 tag=UNKNOWN site=libc:free
+free  start=0x7fd6bc010c50 tag=UNKNOWN site=libc:free
+free  start=0x7fd6c0010c50 tag=UNKNOWN site=libc:free
+free  start=0x7fd6b4012420 tag=UNKNOWN site=libc:free
+free  start=0x7fd6b4010c00 tag=UNKNOWN site=libc:free
+ANOMALY free_interior ptr=0x7fd6cb052010 inside_start=0x7fd6cb052000 inside_size=139264 inside_tag=mmap off=16 site=libc:free
+free  start=0x7fd6cb052000 size=139264 tag=mmap site=libc:munmap
+ANOMALY free_interior ptr=0x7fd6b40008e0 inside_start=0x7fd6b4000000 inside_size=134217728 inside_tag=mmap off=2272 site=libc:free
+free  start=0x5649283256c0 tag=UNKNOWN site=libc:free
+free  start=0x7fd6d172c000 size=8392704 tag=mmap site=libc:munmap
+free  start=0x5649283245e0 tag=UNKNOWN site=libc:free
+free  start=0x564928323e30 tag=UNKNOWN site=libc:free
+free  start=0x564928323680 tag=UNKNOWN site=libc:free
+free  start=0x564928324d90 tag=UNKNOWN site=libc:free
+free  start=0x564928323660 tag=UNKNOWN site=libc:free
+free  start=0x564928323e10 tag=UNKNOWN site=libc:free
+free  start=0x5649283245c0 tag=UNKNOWN site=libc:free
+free  start=0x564928324d70 tag=UNKNOWN site=libc:free
+free  start=0x564928323810 tag=UNKNOWN site=libc:free
+free  start=0x564928324f20 tag=UNKNOWN site=libc:free
+free  start=0x564928323fc0 tag=UNKNOWN site=libc:free
+free  start=0x564928324770 tag=UNKNOWN site=libc:free
+free  start=0x5649283248a0 tag=UNKNOWN site=libc:free
+free  start=0x5649283240f0 tag=UNKNOWN site=libc:free
+free  start=0x564928323940 tag=UNKNOWN site=libc:free
+free  start=0x564928325050 tag=UNKNOWN site=libc:free
+free  start=0x564928324790 tag=UNKNOWN site=libc:free
+free  start=0x7fd6cc010e60 tag=UNKNOWN site=libc:free
+free  start=0x564928323830 tag=UNKNOWN site=libc:free
+free  start=0x7fd6c4010c50 tag=UNKNOWN site=libc:free
+free  start=0x564928323fe0 tag=UNKNOWN site=libc:free
+free  start=0x564928324f40 tag=UNKNOWN site=libc:free
+free  start=0x564928324ad0 tag=UNKNOWN site=libc:free
+free  start=0x564928324320 tag=UNKNOWN site=libc:free
+free  start=0x5649283233c0 tag=UNKNOWN site=libc:free
+free  start=0x564928323b70 tag=UNKNOWN site=libc:free
+ANOMALY free_interior ptr=0x7fd6c00008e0 inside_start=0x7fd6c0000000 inside_size=67108864 inside_tag=mmap off=2272 site=libc:free
+ANOMALY free_interior ptr=0x7fd6bc0008e0 inside_start=0x7fd6bc000000 inside_size=134217728 inside_tag=mmap off=2272 site=libc:free
+free  start=0x7fd6c40008e0 tag=UNKNOWN site=libc:free
+free  start=0x7fd6cc0008e0 tag=UNKNOWN site=libc:free
+free  start=0x5649283257e0 tag=UNKNOWN site=libc:free
+free  start=0x7fd6d0bff000 size=8392704 tag=mmap site=libc:munmap
+free  start=0x564928325900 tag=UNKNOWN site=libc:free
+free  start=0x7fd6d0085000 size=8392704 tag=mmap site=libc:munmap
+free  start=0x564928325a20 tag=UNKNOWN site=libc:free
+free  start=0x7fd6ca40c000 size=8392704 tag=mmap site=libc:munmap
+free  start=0x56492831a7c0 tag=UNKNOWN site=libc:free
+free  start=0x7fd6d49d6000 size=8392704 tag=mmap site=libc:munmap
+free  start=0x56492831a610 tag=UNKNOWN site=libc:free
+free  start=0x56492831a5f0 tag=UNKNOWN site=libc:free
+free  start=0x564928325b40 tag=UNKNOWN site=libc:free
+free  start=0x56492831a7a0 tag=UNKNOWN site=libc:free
+free  start=0x564928326800 tag=UNKNOWN site=libc:free
+free  start=0x564928326a50 tag=UNKNOWN site=libc:free
+free  start=0x5649283266f0 tag=UNKNOWN site=libc:free
+free  start=0x56492831a350 tag=UNKNOWN site=libc:free
+free  start=0x56492831a2a0 tag=UNKNOWN site=libc:free
 #eof

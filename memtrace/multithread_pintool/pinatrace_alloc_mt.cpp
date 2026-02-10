@@ -1,4 +1,4 @@
-//aftos o kwdikas etrexe kanonika me load-only kai meta no-load opos eipe o kathigitis kai kanonika pernondas ola ta traces
+//aftos o kwdikas exei filters gia na perni ta alloc tou memcached alla oxi ta load&stores
 
 #include "pin.H"
 #include <map>
@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <unistd.h>   // getpid
 #include <set>
+#include <signal.h>
 
 using std::string;
 
@@ -35,6 +36,9 @@ static FILE* logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
 
+static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
+//static volatile BOOL g_trace_allocs = TRUE;    // alloc/free (συνήθως τα θες πάντα)
+
 // ---------------- Hook dedupe (avoid double-instrumenting aliased RTNs) ----------------
 static std::set<ADDRINT> g_hooked_rtn_addrs;
 static PIN_LOCK g_hook_lock;
@@ -50,6 +54,7 @@ struct ThreadCtx {
     const char* pendingFunc;
     const char* pendingFile;
     int         pendingLine;
+    ADDRINT pendingCallerIp;
 
     ThreadCtx()
         : out(nullptr),
@@ -58,7 +63,8 @@ struct ThreadCtx {
           pendingTypeTag(nullptr),
           pendingFunc(nullptr),
           pendingFile(nullptr),
-          pendingLine(0)
+          pendingLine(0),
+          pendingCallerIp(0)
     {}
 };
 static TLS_KEY g_tls_key;
@@ -120,10 +126,32 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
     return false;
 }
 
+
+static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
+    BOOL hasHandler, const EXCEPTION_INFO* pExceptInfo, VOID* v)
+{
+(void)tid; (void)sig; (void)ctxt; (void)hasHandler; (void)pExceptInfo; (void)v;
+
+g_trace_memops = !g_trace_memops;
+
+PIN_GetLock(&g_events_lock, 0);
+if (logf) {
+fprintf(logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
+fflush(logf);
+}
+if (tracef) {
+fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
+fflush(tracef);
+}
+PIN_ReleaseLock(&g_events_lock);
+
+return FALSE; // do not deliver to application
+}
+
 // --------------------- Record memory accesses --------------------
 static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return;
-
+    if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
     Region snap;
     size_t off = 0;
@@ -144,7 +172,7 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
 
 static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return;
-
+    if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
     Region snap;
     size_t off = 0;
@@ -609,25 +637,6 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz) {
     }
 }
 
-// reallocarray(oldptr, nmemb, size) -> void*
-// treat like realloc(oldptr, nmemb*size)
-/*static VOID AfterReallocArray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t sz)
-{
-    size_t bytes = 0;
-
-    if (nmemb != 0 && sz != 0) {
-        // overflow guard
-        if (nmemb > (SIZE_MAX / sz)) {
-            bytes = 0;
-        } else {
-            bytes = nmemb * sz;
-        }
-    }
-
-    // reuse existing logic
-    AfterRealloc(ret, oldp, bytes);
-}*/
-
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
 {
     bool found = false;
@@ -656,12 +665,6 @@ static VOID BeforeFree(ADDRINT p) {
     Region snap;
     size_t off = 0;
 
-    /*bool inside_some_region = false;
-    Region snap;
-    Region container;
-    size_t off = 0;
-    size_t container_off = 0;*/
-
     PIN_GetLock(&g_regions_lock, tid);
 
     // 1) exact start
@@ -682,11 +685,6 @@ static VOID BeforeFree(ADDRINT p) {
                 snap = r;
                 off = (size_t)(p - r.start);
                 known_inside = true;
-
-                // extra diagnostics
-                /*container = r;
-                container_off = off;
-                inside_some_region = true;*/
 
                 // IMPORTANT:
                 // δεν κάνουμε erase εδώ, γιατί δεν ξέρουμε ποιο είναι το real start που πρέπει να φύγει
@@ -710,13 +708,6 @@ static VOID BeforeFree(ADDRINT p) {
         } else {
             //fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
             fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free\n", (void*)p);
-            /*if (inside_some_region) {
-                fprintf(eventsf,
-                    "ANOMALY free_unknown_inside ptr=%p container_start=%p container_size=%zu container_tag=%s off=%zu site=libc:free\n",
-                    (void*)p, (void*)container.start, container.size, container.tag.c_str(), container_off);
-            } else {
-                fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free\n", (void*)p);
-            }*/
         }
         fflush(eventsf);
     }
@@ -731,17 +722,9 @@ static VOID BeforeFree(ADDRINT p) {
                     "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free\n",
                     (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off);
         } else {
-            fprintf(tracef,"T%u free  start=%p tag=? site=libc:free\n",(unsigned)tid, (void*)p);
-            /*if (inside_some_region) {
-                fprintf(tracef,
-                    "T%u ANOMALY free_unknown_inside ptr=%p container_start=%p container_size=%zu container_tag=%s off=%zu site=libc:free\n",
-                    (unsigned)tid, (void*)p,
-                    (void*)container.start, container.size, container.tag.c_str(), container_off);
-            } else {
-                fprintf(tracef,
+            fprintf(tracef,
                     "T%u free  start=%p tag=? site=libc:free\n",
                     (unsigned)tid, (void*)p);
-            }*/
         }
         fflush(tracef);
     }
@@ -895,12 +878,17 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz)
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
 static VOID HookLibcAllocators(IMG img) {
     if (!KnobUseLibcHooks.Value()) return;
-    if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return;
+    //if (IMG_Type(img) != IMG_TYPE_SHAREDLIB) return;
 
     // Προαιρετικό αλλά χρήσιμο: κάνε hook μόνο στη libc
     // (μειώνει θόρυβο αν άλλα libs έχουν "malloc" symbols)
+    //const string imgName = IMG_Name(img);
+    //if (imgName.find("libc.so") == string::npos) return;
+
     const string imgName = IMG_Name(img);
-    if (imgName.find("libc.so") == string::npos) return;
+    if (imgName.find("ld-linux") != string::npos) return;
+    if (imgName.find("libpindwarf") != string::npos) return;
+    if (imgName.find("pin") != string::npos && imgName.find("/pin/") != string::npos) return;
 
     auto LogHook = [&](const char* what) {
         PIN_GetLock(&g_events_lock, 0);
@@ -1014,31 +1002,9 @@ static VOID HookLibcAllocators(IMG img) {
         }
     }
 
-    // reallocarray: (oldptr, nmemb, size)
-/*{
-    RTN r = RTN_FindByName(img, "reallocarray");
-    if (RTN_Valid(r)) {
-        if (TryMarkHooked(r)) {
-            RTN_Open(r);
-            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocArray),
-                IARG_FUNCRET_EXITPOINT_VALUE,        // ret
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,    // oldptr
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,    // nmemb
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 2,    // size
-                IARG_END);
-            RTN_Close(r);
-            LogHook("reallocarray");
-        }
-    }
-}*/
-
     // free: before (ptr)
     HookBefore1("free",        AFUNPTR(BeforeFree));
     HookBefore1("__libc_free", AFUNPTR(BeforeFree));
-
-    // cfree variants (some paths use cfree instead of free)
-    HookBefore1("cfree",   AFUNPTR(BeforeFree));
-    HookBefore1("__cfree", AFUNPTR(BeforeFree));
 
     // aligned / other allocators
     HookAfterRet2("aligned_alloc", AFUNPTR(AfterAlignedAlloc));
@@ -1161,6 +1127,7 @@ static VOID Fini(INT32, VOID*) {
     PIN_ReleaseLock(&g_events_lock);
 }
 
+
 // ------------------------------ main -----------------------------
 // dilwnei ta call backs kai arxizei to Pin.
 int main(int argc, char* argv[]) {
@@ -1178,6 +1145,16 @@ int main(int argc, char* argv[]) {
     eventsf = fopen("pinatrace.events", "w");  // κρατάμε το events όπως πριν
     tracef  = fopen("pinatrace.out", "w");     // ΕΝΙΑΙΟ trace file
 
+    if (tracef) {
+        fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
+        fprintf(tracef, "#START pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        fflush(tracef);
+    }
+    if (logf) {
+        fprintf(logf, "[START] pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        fflush(logf);
+    }
+
     // Callbacks
     IMG_AddInstrumentFunction(ImageLoad, 0);
     INS_AddInstrumentFunction(Instruction, 0);
@@ -1185,6 +1162,7 @@ int main(int argc, char* argv[]) {
     PIN_AddThreadFiniFunction(ThreadFini, 0);
     PIN_AddFiniFunction(Fini, 0);
     
+    PIN_InterceptSignal(SIGUSR2, OnSigUsr2, 0);
     PIN_StartProgram(); // never returns
     return 0;
 }

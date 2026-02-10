@@ -140,7 +140,7 @@ cd ~/memcache-perf
 
 
 ----------------------------------------------------------------------------------------------
-RUN LIKE PROFESSOR SAID WITH LOAD-ONLY AND NO-LOAD
+RUN LIKE PROFESSOR SAID WITH LOAD-ONLY AND NO-LOAD      -- file: pin_without_l&s_filter.txt
 
 Terminal 1: (memcached)
 
@@ -178,7 +178,7 @@ Terminal 1: ctrl + c
 
 
 
-RUN THE NEW CODE WHERE LOAD/STORES OF MEMCACHED ARE DISABLED
+RUN THE NEW CODE WHERE LOAD/STORES OF MEMCACHED ARE DISABLED    -- file: pin_with_filters.txt
 
 Terminal 1:
 
@@ -189,6 +189,8 @@ rm -f pinatrace.out pinatrace.events pintool.log
 $PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1   -- memcached -p 11211 -u $USER
 
 Terminal 2:
+
+cd ~/memcache-perf
 
 ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
 
