@@ -69,6 +69,43 @@ struct ThreadCtx {
 };
 static TLS_KEY g_tls_key;
 
+
+// Helper gia IMG name
+static inline void GetImgFromIp(ADDRINT ip, std::string &imgName, ADDRINT &imgOff)
+{
+    imgName.clear();
+    imgOff = 0;
+
+    if (ip == 0) return;
+
+    PIN_LockClient();
+    IMG img = IMG_FindByAddress(ip);
+    if (IMG_Valid(img)) {
+        imgName = IMG_Name(img);
+        imgOff  = ip - IMG_LowAddress(img);
+    }
+    PIN_UnlockClient();
+}
+
+// Helper function gia to GetSourceLocation oste na doume apo pou proerxonde ta frees
+static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
+{
+    file.clear();
+    line = 0;
+    col  = 0;
+
+    if (ip == 0) return;
+
+    // Pin doc: in analysis routines, take client lock
+    PIN_LockClient();
+    PIN_GetSourceLocation(ip, &col, &line, &file);
+    PIN_UnlockClient();
+
+    // αν δεν βρει info -> file="" line=0 col=0
+}
+
+
+
 // Helper: fetch per-thread ctx
 static inline ThreadCtx* CTX(THREADID tid) {
     return static_cast<ThreadCtx*>(PIN_GetThreadData(g_tls_key, tid));
@@ -548,6 +585,7 @@ static VOID HookDummySites(IMG img)
 
 // ----------------- Optional glibc malloc/free hooks --------------
 // otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
+/*
 static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (!ret || sz == 0) return;
     THREADID tid = PIN_ThreadId();
@@ -666,6 +704,194 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         }
         PIN_ReleaseLock(&g_events_lock);
     }
+}*/
+
+static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
+    if (!ret || sz == 0) return;
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = sz; r.tag = "heap";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, sz,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, sz,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
+    if (!ret || n == 0 || sz == 0) return;
+    size_t bytes = n * sz;
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, bytes,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, bytes,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location (same for both free(old) + alloc(new))
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    // old pointer gets freed (semantically)
+    if (oldp) {
+        bool known = false;
+        Region snap;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        auto it = g_regions.find(oldp);
+        if (it != g_regions.end()) {
+            snap = it->second;
+            known = true;
+            g_regions.erase(it);
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            if (known) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (void*)snap.start, snap.size, snap.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            }
+            fflush(eventsf);
+        }
+        if (tracef) {
+            if (known) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)snap.start, snap.size, snap.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            }
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+
+    // new allocation
+    if (ret && sz) {
+        PIN_GetLock(&g_regions_lock, tid);
+        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc";
+        g_regions[ret] = r;
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=heap:realloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)ret, sz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=heap:realloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid, (void*)ret, sz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
 }
 
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
@@ -686,9 +912,15 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
     return found;
 }
 
-static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
+/*static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     if (!p) return;
     THREADID tid = PIN_ThreadId();
+
+    // debugging for frees
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
 
     bool known_exact = false;
     bool known_inside = false;
@@ -761,6 +993,113 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     }
 
     PIN_ReleaseLock(&g_events_lock);
+}*/
+
+static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
+    if (!p) return;
+    THREADID tid = PIN_ThreadId();
+
+    // ---- Source location (κρατάμε αυτό που είχες) ----
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // ---- Image name + offset (ΝΕΟ) ----
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    bool known_exact = false;
+    bool known_inside = false;
+    Region snap;
+    size_t off = 0;
+
+    PIN_GetLock(&g_regions_lock, tid);
+
+    // 1) exact start
+    auto it = g_regions.find(p);
+    if (it != g_regions.end()) {
+        snap = it->second;
+        known_exact = true;
+        g_regions.erase(it);
+    } else {
+        // 2) interior pointer?
+        auto it2 = g_regions.upper_bound(p);
+        if (it2 != g_regions.begin()) {
+            --it2;
+            const Region &r = it2->second;
+            ADDRINT end = r.start + (ADDRINT)r.size;
+            if (p >= r.start && p < end) {
+                snap = r;
+                off = (size_t)(p - r.start);
+                known_inside = true;
+                // δεν κάνουμε erase εδώ
+            }
+        }
+    }
+
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (eventsf) {
+        if (known_exact) {
+            fprintf(eventsf,
+                    "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else if (known_inside) {
+            fprintf(eventsf,
+                    "ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else {
+            fprintf(eventsf,
+                    "free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)p,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        }
+        fflush(eventsf);
+    }
+
+    if (tracef) {
+        if (known_exact) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else if (known_inside) {
+            fprintf(tracef,
+                    "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)p,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        }
+        fflush(tracef);
+    }
+
+    PIN_ReleaseLock(&g_events_lock);
 }
 
 // ---------- Extra libc hooks for better coverage ----------
@@ -801,6 +1140,7 @@ static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, s
 // ---------------- mmap/munmap/mremap hooks (with caller pc) ----------------
 
 // mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) -> void*
+/*
 static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 {
     if (!ret || ret == (ADDRINT)-1 || length == 0) return;
@@ -939,6 +1279,226 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
             fprintf(tracef,
                     "T%u alloc start=%p size=%zu tag=mremap site=libc:mremap pc=%p\n",
                     (unsigned)tid, (void*)ret, newsz, (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}*/
+
+static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
+{
+    if (!ret || ret == (ADDRINT)-1 || length == 0) return;
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=mmap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, length,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=mmap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, length,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
+{
+    if (rc != 0) return;
+    if (!addr || length == 0) return;
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    bool known = false;
+    Region snap;
+
+    PIN_GetLock(&g_regions_lock, tid);
+    auto it = g_regions.find(addr);
+    if (it != g_regions.end()) {
+        snap = it->second;
+        known = true;
+        g_regions.erase(it);
+    }
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        if (known) {
+            fprintf(eventsf,
+                    "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else {
+            fprintf(eventsf,
+                    "free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)addr,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        }
+        fflush(eventsf);
+    }
+    if (tracef) {
+        if (known) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)addr,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+        }
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip)
+{
+    (void)oldsz;
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (NEW)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    // remove old mapping if we tracked it
+    if (oldp) {
+        bool known_old = false;
+        Region snap_old;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        auto it = g_regions.find(oldp);
+        if (it != g_regions.end()) {
+            snap_old = it->second;
+            known_old = true;
+            g_regions.erase(it);
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            if (known_old) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            }
+            fflush(eventsf);
+        }
+        if (tracef) {
+            if (known_old) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
+            }
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+
+    // track new mapping
+    if (ret && ret != (ADDRINT)-1 && newsz) {
+        PIN_GetLock(&g_regions_lock, tid);
+        Region r; r.start = ret; r.size = newsz; r.tag = "mremap";
+        g_regions[ret] = r;
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=mremap site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)ret, newsz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=mremap site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)ret, newsz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
             fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
