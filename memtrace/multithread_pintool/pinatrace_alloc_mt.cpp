@@ -1688,6 +1688,10 @@ static VOID HookLibcAllocators(IMG img) {
     HookBefore1("free",        AFUNPTR(BeforeFree));
     HookBefore1("__libc_free", AFUNPTR(BeforeFree));
 
+    // extra aliases
+    HookBefore1("cfree",        AFUNPTR(BeforeFree));
+    HookBefore1("__libc_cfree", AFUNPTR(BeforeFree));
+
     // aligned / other allocators
     HookAfterRet2("aligned_alloc", AFUNPTR(AfterAlignedAlloc));
     HookAfterRet2("memalign",      AFUNPTR(AfterMemalign));
