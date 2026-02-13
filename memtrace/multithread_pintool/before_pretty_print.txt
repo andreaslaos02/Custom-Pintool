@@ -106,90 +106,6 @@ static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT3
     // αν δεν βρει info -> file="" line=0 col=0
 }
 
-// -------------------------- Pretty printers (ALLOC/FREE only) --------------------------
-
-// ALLOC
-static inline void PrintAlloc(THREADID tid,
-    ADDRINT region_start, size_t size, const char* type,
-    const char* caller_file, int caller_line,
-    const char* caller_img, unsigned long caller_img_off,
-    ADDRINT caller_pc)
-{
-    (void)tid;
-    if (!tracef) return;
-
-    fprintf(tracef,
-        "[ALLOC]    "
-        "Region_start=%p    "
-        "Size=%zu   "
-        "Type=%s    "
-        "Caller=%s:%d   "
-        "Caller_IMG=%s+0x%lx    "
-        "Caller_PC=%p\n",
-        (void*)region_start,
-        size,
-        type ? type : "?",
-        caller_file ? caller_file : "?", caller_line,
-        caller_img ? caller_img : "?", caller_img_off,
-        (void*)caller_pc
-    );
-    fflush(tracef);
-}
-
-// FREE (known exact region)
-static inline void PrintFreeKnown(THREADID tid,
-    ADDRINT region_start, size_t region_size, const char* type,
-    ADDRINT free_ptr,
-    const char* caller_file, int caller_line,
-    const char* caller_img, unsigned long caller_img_off,
-    ADDRINT caller_pc)
-{
-    (void)tid;
-    if (!tracef) return;
-
-    fprintf(tracef,
-        "[FREE]     "
-        "Region_start=%p    "
-        "Region_Size=%zu    "
-        "Type=%s    "
-        "Free_ptr=%p    "
-        "Caller=%s:%d"
-        "Caller_IMG=%s+0x%lx    "
-        "Caller_PC=%p\n",
-        (void*)region_start,
-        region_size,
-        type ? type : "?",
-        (void*)free_ptr,
-        caller_file ? caller_file : "?", caller_line,
-        caller_img ? caller_img : "?", caller_img_off,
-        (void*)caller_pc
-    );
-    fflush(tracef);
-}
-
-// FREE (unknown)
-static inline void PrintFreeUnknown(THREADID tid,
-    ADDRINT free_ptr,
-    const char* caller_file, int caller_line,
-    const char* caller_img, unsigned long caller_img_off,
-    ADDRINT caller_pc)
-{
-    (void)tid;
-    if (!tracef) return;
-
-    fprintf(tracef,
-        "[FREE - UNKNOWN]   "
-        "Free_ptr=%p    "
-        "Caller=%s:%d   "
-        "Caller_IMG=%s+0x%lx    "
-        "Caller_PC=%p\n",
-        (void*)free_ptr,
-        caller_file ? caller_file : "?", caller_line,
-        caller_img ? caller_img : "?", caller_img_off,
-        (void*)caller_pc
-    );
-    fflush(tracef);
-}
 
 
 // Helper: fetch per-thread ctx
@@ -199,6 +115,95 @@ static inline ThreadCtx* CTX(THREADID tid) {
 
 // ------------------------- Lookup helper -------------------------
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
+
+
+/*// claude
+
+// Προσθήκη μετά τη FindRegionWithOff και πριν το OnSigUsr2
+static VOID ParseProcMaps() {
+    FILE* f = fopen("/proc/self/maps", "r");
+    if (!f) {
+        if (logf) {
+            fprintf(logf, "[ERROR] Cannot open /proc/self/maps\n");
+            fflush(logf);
+        }
+        return;
+    }
+    
+    char line[512];
+    THREADID tid = 0;
+    int count = 0;
+    unsigned long heap_start = 0, heap_end = 0;
+    
+    PIN_GetLock(&g_regions_lock, tid);
+    
+    while (fgets(line, sizeof(line), f)) {
+        unsigned long start, end;
+        char perms[16], dev[16], path[256] = "";  // ΟΚ αυτό
+        unsigned long offset, inode;
+        
+        // ΦΙΞ: Χρησιμοποίησε dev αντί για &dev (είναι ήδη pointer)
+        int n = sscanf(line, "%lx-%lx %s %lx %s %lu %255[^\n]", 
+                       &start, &end, perms, &offset, dev, &inode, path);
+        
+        if (n >= 6) {
+            // Κοίτα για [heap]
+            bool is_heap = (n == 7 && strstr(path, "[heap]"));
+            
+            if (is_heap) {
+                heap_start = start;
+                heap_end = end;
+                
+                Region r;
+                r.start = (ADDRINT)start;
+                r.size = (size_t)(end - start);
+                r.tag = "heap:preexist";
+                
+                if (g_regions.find(r.start) == g_regions.end()) {
+                    g_regions[r.start] = r;
+                    count++;
+                }
+            }
+            // Anonymous writable regions
+            else {
+                bool is_anon = (n == 6 && perms[0] == 'r' && perms[1] == 'w');
+                if (is_anon) {
+                    Region r;
+                    r.start = (ADDRINT)start;
+                    r.size = (size_t)(end - start);
+                    r.tag = "anon:preexist";
+                    
+                    if (g_regions.find(r.start) == g_regions.end()) {
+                        g_regions[r.start] = r;
+                        count++;
+                    }
+                }
+            }
+        }
+    }
+    
+    PIN_ReleaseLock(&g_regions_lock);
+    fclose(f);
+    
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[INIT] Parsed /proc/self/maps, loaded %d pre-existing regions\n", count);
+        if (heap_start) {
+            fprintf(logf, "[INIT] Found heap segment: %p-%p (size=%zu)\n", 
+                    (void*)heap_start, (void*)heap_end, (size_t)(heap_end - heap_start));
+        }
+        fflush(logf);
+    }
+    if (tracef) {
+        fprintf(tracef, "#INIT Loaded %d pre-existing memory regions\n", count);
+        if (heap_start) {
+            fprintf(tracef, "#INIT Heap segment: %p-%p\n", (void*)heap_start, (void*)heap_end);
+        }
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+//claude end*/
 
 
 
@@ -223,11 +228,6 @@ static inline std::string BaseSym(std::string n) {
     if (n.rfind(gi, 0) == 0) n = n.substr(gi.size());
 
     return n;
-}
-
-static inline bool IsPltStub(const std::string& raw) {
-    // π.χ. "malloc@plt", "free@plt"
-    return raw.find("@plt") != std::string::npos;
 }
 
 // ----------------------Helper gia overlap detaction -----------------
@@ -335,7 +335,6 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
 
 
 static BOOL ShouldInstrumentIns(INS ins) {
-
     // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
     IMG img = IMG_FindByAddress(INS_Address(ins));
     if (!IMG_Valid(img)) return FALSE;
@@ -375,6 +374,16 @@ static VOID CallAllocSite(VOID* ptr, size_t size, const char* type_tag,
     const char* func, const char* file, int line,ADDRINT caller_ip)
 {
     THREADID tid = PIN_ThreadId(); // thread που κάνει το alloc
+
+    // Debug για να δούμε αν ΠΟΤΕ μπαίνουμε εδώ
+    /*fprintf(stderr, "[Pintool] CallAllocSite: T%u ptr=%p size=%zu tag=%s func=%s file=%s line=%d\n",
+            (unsigned)tid,
+            ptr,
+            size,
+            type_tag ? type_tag : "?",
+            func ? func : "?",
+            file ? file : "?",
+            line);*/
 
     if (!ptr || size == 0) return;
     const char* tag = type_tag ? type_tag : "?";
@@ -466,6 +475,15 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
     const char* func, const char* file, int line,ADDRINT caller_ip)
 {
     THREADID tid = PIN_ThreadId();
+
+    // Debug για να δούμε αν μπαίνουμε εδώ
+    /*fprintf(stderr, "[Pintool] CallFreeSite: T%u ptr=%p tag=%s func=%s file=%s line=%d\n",
+            (unsigned)tid,
+            ptr,
+            type_tag ? type_tag : "?",
+            func ? func : "?",
+            file ? file : "?",
+            line);*/
 
     if (!ptr) return;
     const char* tag = type_tag ? type_tag : "?";
@@ -672,22 +690,131 @@ static VOID HookDummySites(IMG img)
 
 // ----------------- Optional glibc malloc/free hooks --------------
 // otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
-
+/*
 static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
-    if (!ret ) return;      //|| sz == 0
+    if (!ret || sz == 0) return;
     THREADID tid = PIN_ThreadId();
-    //debug msg
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = sz; r.tag = "heap";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
     PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        std::string imgName; ADDRINT imgOff = 0;
-        GetImgFromIp(caller_ip, imgName, imgOff);
-        fprintf(logf, "[MALLOC HIT] ret=%p sz=%zu caller_pc=%p img=%s+0x%lx\n",
-                (void*)ret, sz, (void*)caller_ip,
-                imgName.c_str(), (unsigned long)imgOff);
-        fflush(logf);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap site=libc:malloc pc=%p\n",
+                (void*)ret, sz, (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap site=libc:malloc pc=%p\n",
+                (unsigned)tid, (void*)ret, sz, (void*)caller_ip);
+        fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
-    //end of debug msg
+}
+
+static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
+    if (!ret || n == 0 || sz == 0) return;
+    size_t bytes = n * sz;
+    THREADID tid = PIN_ThreadId();
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=heap:calloc site=libc:calloc pc=%p\n",
+                (void*)ret, bytes, (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap:calloc site=libc:calloc pc=%p\n",
+                (unsigned)tid, (void*)ret, bytes, (void*)caller_ip);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
+    THREADID tid = PIN_ThreadId();
+
+    // old pointer gets freed (semantically)
+    if (oldp) {
+        bool known = false;
+        Region snap;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        auto it = g_regions.find(oldp);
+        if (it != g_regions.end()) {
+            snap = it->second;
+            known = true;
+            g_regions.erase(it);
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            if (known) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=libc:realloc(old) pc=%p\n",
+                        (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=UNKNOWN site=libc:realloc(old) pc=%p\n",
+                        (void*)oldp, (void*)caller_ip);
+            }
+            fflush(eventsf);
+        }
+        if (tracef) {
+            if (known) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=libc:realloc(old) pc=%p\n",
+                        (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=libc:realloc(old) pc=%p\n",
+                        (unsigned)tid, (void*)oldp, (void*)caller_ip);
+            }
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+
+    // new allocation
+    if (ret && sz) {
+        PIN_GetLock(&g_regions_lock, tid);
+        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc";
+        g_regions[ret] = r;
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=heap:realloc site=libc:realloc pc=%p\n",
+                    (void*)ret, sz, (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=heap:realloc site=libc:realloc pc=%p\n",
+                    (unsigned)tid, (void*)ret, sz, (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}*/
+
+static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
+    if (!ret || sz == 0) return;
+    THREADID tid = PIN_ThreadId();
+
     // caller source location
     std::string srcFile;
     INT32 srcLine = 0, srcCol = 0;
@@ -701,52 +828,35 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = sz; r.tag = "heap:malloc";
+    Region r; r.start = ret; r.size = sz; r.tag = "heap";
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
+
     PIN_GetLock(&g_events_lock, tid);
-
-    // trace (new clean format)
-    PrintAlloc(tid,
-        (ADDRINT)ret,
-        sz,
-        "heap:malloc",                 // Type
-        srcFileC,
-        (int)srcLine,
-        imgC,
-        (unsigned long)imgOff,
-        caller_ip
-    );
-
-    // eventsf (προαιρετικά: κράτα παλιό format για scripts)
     if (eventsf) {
         fprintf(eventsf,
-            "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
-            (void*)ret, sz,
-            srcFileC, (int)srcLine,
-            imgC, (unsigned long)imgOff,
-            (void*)caller_ip);
+                "alloc start=%p size=%zu tag=heap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, sz,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
         fflush(eventsf);
     }
-
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, sz,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
+    }
     PIN_ReleaseLock(&g_events_lock);
 }
 
 static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
-    //if (!ret || n == 0 || sz == 0) return;
-    //size_t bytes = n * sz;
-    if (!ret) return;
-
-    size_t bytes = 0;
-    if (n != 0 && sz != 0) {
-        if (n > (std::numeric_limits<size_t>::max() / sz)) {
-            return; // overflow -> μην κάνεις update
-        }
-        bytes = n * sz;
-    } else {
-        bytes = 0; // calloc(0, x) ή calloc(x,0) -> bytes 0 αλλά ptr μπορεί να είναι non-null
-    }
-
+    if (!ret || n == 0 || sz == 0) return;
+    size_t bytes = n * sz;
     THREADID tid = PIN_ThreadId();
 
     // caller source location
@@ -767,30 +877,24 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
-
-    // trace (new clean format)
-    PrintAlloc(tid,
-        (ADDRINT)ret,
-        bytes,
-        "heap:calloc",
-        srcFileC,
-        (int)srcLine,
-        imgC,
-        (unsigned long)imgOff,
-        caller_ip
-    );
-
-    // eventsf (keep old format if you want)
     if (eventsf) {
         fprintf(eventsf,
-            "alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
-            (void*)ret, bytes,
-            srcFileC, (int)srcLine,
-            imgC, (unsigned long)imgOff,
-            (void*)caller_ip);
+                "alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, bytes,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
         fflush(eventsf);
     }
-
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, bytes,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
+    }
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -844,20 +948,23 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         }
         if (tracef) {
             if (known) {
-                        PrintFreeKnown(tid,(ADDRINT)snap.start,snap.size,snap.tag.c_str(),        // Type = tag του region
-                            (ADDRINT)oldp,           // Free_ptr
-                            srcFileC,(int)srcLine,imgC,(unsigned long)imgOff,caller_ip);
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)snap.start, snap.size, snap.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
             } else {
-                        PrintFreeUnknown(tid,
-                            (ADDRINT)oldp,
-                            srcFileC,
-                            (int)srcLine,
-                            imgC,
-                            (unsigned long)imgOff,
-                            caller_ip
-                        );
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
             }
-            //fflush(tracef);
+            fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
     }
@@ -880,17 +987,13 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
             fflush(eventsf);
         }
         if (tracef) {
-           
-            PrintAlloc(tid,
-                (ADDRINT)ret,
-                sz,
-                "heap:realloc",
-                srcFileC,
-                (int)srcLine,
-                imgC,
-                (unsigned long)imgOff,
-                caller_ip
-            );
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=heap:realloc site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid, (void*)ret, sz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
     }
@@ -937,16 +1040,95 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
     return found;
 }
 
+/*static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
+    if (!p) return;
+    THREADID tid = PIN_ThreadId();
+
+    // debugging for frees
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    bool known_exact = false;
+    bool known_inside = false;
+    //bool erased = false;
+    Region snap;
+    size_t off = 0;
+
+    PIN_GetLock(&g_regions_lock, tid);
+
+    // 1) exact start
+    auto it = g_regions.find(p);
+    if (it != g_regions.end()) {
+        snap = it->second;
+        known_exact = true;
+        g_regions.erase(it);
+        //erased = true;
+    } else {
+        // 2) interior pointer?
+        auto it2 = g_regions.upper_bound(p);
+        if (it2 != g_regions.begin()) {
+            --it2;
+            const Region &r = it2->second;
+            ADDRINT end = r.start + (ADDRINT)r.size;
+            if (p >= r.start && p < end) {
+                snap = r;
+                off = (size_t)(p - r.start);
+                known_inside = true;
+
+                // IMPORTANT:
+                // δεν κάνουμε erase εδώ, γιατί δεν ξέρουμε ποιο είναι το real start που πρέπει να φύγει
+                // (αν θες, θα το κάνουμε ως ANOMALY χωρίς erase)
+            }
+        }
+    }
+
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (eventsf) {
+        if (known_exact) {
+            fprintf(eventsf, "free  start=%p size=%zu tag=%s site=libc:free pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(),(void*)caller_ip);
+        } else if (known_inside) {
+            fprintf(eventsf,
+                    "ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free pc=%p\n",
+                    (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off, (void*)caller_ip);
+        } else {
+            //fprintf(eventsf, "free  start=%p tag=? site=libc:free\n", (void*)p);
+            fprintf(eventsf, "free  start=%p tag=UNKNOWN site=libc:free pc=%p\n", (void*)p, (void*)caller_ip);
+        }
+        fflush(eventsf);
+    }
+
+    if (tracef) {
+        if (known_exact) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+        } else if (known_inside) {
+            fprintf(tracef,
+                    "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)p, (void*)snap.start, snap.size, snap.tag.c_str(), off, (void*)caller_ip);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=? site=libc:free pc=%p\n",
+                    (unsigned)tid, (void*)p, (void*)caller_ip);
+        }
+        fflush(tracef);
+    }
+
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+
 static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     //claude
     // DEBUG: Log EVERY free attempt
     PIN_GetLock(&g_events_lock, PIN_ThreadId());
     if (logf) {
-        //fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p\n", (void*)p, (void*)caller_ip);
-        std::string imgName; ADDRINT imgOff=0;
-        GetImgFromIp(caller_ip, imgName, imgOff);
-        fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p img=%s+0x%lx\n",
-             (void*)p, (void*)caller_ip, imgName.c_str(), (unsigned long)imgOff);
+        fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p\n", (void*)p, (void*)caller_ip);
         fflush(logf);
     }
     PIN_ReleaseLock(&g_events_lock);
@@ -1026,20 +1208,16 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
         }
         fflush(eventsf);
     }
-//fprintf(tracef, "T%u free  start=%p size=%zu tag=%s site=... pc=%p\n", ...)
+
     if (tracef) {
         if (known_exact) {
-                    PrintFreeKnown(tid,
-                        (ADDRINT)snap.start,
-                        snap.size,
-                        snap.tag.c_str(),    // Type
-                        (ADDRINT)p,          // Free_ptr = αυτό που δόθηκε στη free(p)
-                        srcFileC,
-                        (int)srcLine,
-                        imgC,
-                        (unsigned long)imgOff,
-                        caller_ip
-                    );                    
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
         } else if (known_inside) {
             fprintf(tracef,
                     "T%u ANOMALY free_interior ptr=%p inside_start=%p inside_size=%zu inside_tag=%s off=%zu site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -1049,14 +1227,13 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
                     imgC, (unsigned long)imgOff,
                     (void*)caller_ip);
         } else {
-                    PrintFreeUnknown(tid,
-                        (ADDRINT)p,
-                        srcFileC,
-                        (int)srcLine,
-                        imgC,
-                        (unsigned long)imgOff,
-                        caller_ip
-                    );
+            fprintf(tracef,
+                    "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)p,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
         }
         fflush(tracef);
     }
@@ -1101,6 +1278,152 @@ static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, s
 
 // ---------------- mmap/munmap/mremap hooks (with caller pc) ----------------
 
+// mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) -> void*
+/*
+static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
+{
+    if (!ret || ret == (ADDRINT)-1 || length == 0) return;
+    THREADID tid = PIN_ThreadId();
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=mmap site=libc:mmap pc=%p\n",
+                (void*)ret, length, (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=mmap site=libc:mmap pc=%p\n",
+                (unsigned)tid, (void*)ret, length, (void*)caller_ip);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+// munmap(void *addr, size_t length) -> int
+static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
+{
+    if (rc != 0) return;
+    if (!addr || length == 0) return;
+    THREADID tid = PIN_ThreadId();
+
+    bool known = false;
+    Region snap;
+
+    PIN_GetLock(&g_regions_lock, tid);
+    auto it = g_regions.find(addr);
+    if (it != g_regions.end()) {
+        snap = it->second;
+        known = true;
+        g_regions.erase(it);
+    }
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        if (known) {
+            fprintf(eventsf,
+                    "free  start=%p size=%zu tag=%s site=libc:munmap pc=%p\n",
+                    (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+        } else {
+            fprintf(eventsf,
+                    "free  start=%p tag=? site=libc:munmap pc=%p\n",
+                    (void*)addr, (void*)caller_ip);
+        }
+        fflush(eventsf);
+    }
+    if (tracef) {
+        if (known) {
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=libc:munmap pc=%p\n",
+                    (unsigned)tid, (void*)snap.start, snap.size, snap.tag.c_str(), (void*)caller_ip);
+        } else {
+            fprintf(tracef,
+                    "T%u free  start=%p tag=? site=libc:munmap pc=%p\n",
+                    (unsigned)tid, (void*)addr, (void*)caller_ip);
+        }
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+// mremap(void *old_address, size_t old_size, size_t new_size, int flags, ...) -> void*
+static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip)
+{
+    THREADID tid = PIN_ThreadId();
+
+    // remove old mapping if we tracked it
+    if (oldp) {
+        bool known_old = false;
+        Region snap_old;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        auto it = g_regions.find(oldp);
+        if (it != g_regions.end()) {
+            snap_old = it->second;
+            known_old = true;
+            g_regions.erase(it);
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            if (known_old) {
+                fprintf(eventsf,
+                        "free  start=%p size=%zu tag=%s site=libc:mremap(old) pc=%p\n",
+                        (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(eventsf,
+                        "free  start=%p tag=mmap site=libc:mremap(old) pc=%p\n",
+                        (void*)oldp, (void*)caller_ip);
+            }
+            fflush(eventsf);
+        }
+        if (tracef) {
+            if (known_old) {
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=libc:mremap(old) pc=%p\n",
+                        (unsigned)tid, (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(), (void*)caller_ip);
+            } else {
+                fprintf(tracef,
+                        "T%u free  start=%p tag=mmap site=libc:mremap(old) pc=%p\n",
+                        (unsigned)tid, (void*)oldp, (void*)caller_ip);
+            }
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+
+    // track new mapping
+    if (ret && ret != (ADDRINT)-1 && newsz) {
+        PIN_GetLock(&g_regions_lock, tid);
+        Region r; r.start = ret; r.size = newsz; r.tag = "mremap";
+        g_regions[ret] = r;
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=mremap site=libc:mremap pc=%p\n",
+                    (void*)ret, newsz, (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=mremap site=libc:mremap pc=%p\n",
+                    (unsigned)tid, (void*)ret, newsz, (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}*/
+
 static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 {
     if (!ret || ret == (ADDRINT)-1 || length == 0) return;
@@ -1134,21 +1457,17 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
         fflush(eventsf);
     }
     if (tracef) {
-                PrintAlloc(tid,
-                    (ADDRINT)ret,
-                    length,
-                    "mmap",
-                    srcFileC,
-                    (int)srcLine,
-                    imgC,
-                    (unsigned long)imgOff,
-                    caller_ip
-                );
-        //fflush(tracef);
+        fprintf(tracef,
+                "T%u alloc start=%p size=%zu tag=mmap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (unsigned)tid, (void*)ret, length,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
-//
+
 static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
 {
     if (rc != 0) return;
@@ -1200,27 +1519,23 @@ static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip
     }
     if (tracef) {
         if (known) {
-            PrintFreeKnown(tid,
-                (ADDRINT)snap.start,
-                snap.size,
-                snap.tag.c_str(),        // Type = region type/tag
-                (ADDRINT)addr,           // Free_ptr = addr passed to munmap(addr, len)
-                srcFileC,
-                (int)srcLine,
-                imgC,
-                (unsigned long)imgOff,
-                caller_ip
-            );
+            fprintf(tracef,
+                    "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)snap.start, snap.size, snap.tag.c_str(),
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
         } else {
-            PrintFreeUnknown(tid,
-                (ADDRINT)addr,           // Free_ptr
-                srcFileC,
-                (int)srcLine,
-                imgC,
-                (unsigned long)imgOff,
-                caller_ip
-            );
+            fprintf(tracef,
+                    "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)addr,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
         }
+        fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -1276,30 +1591,24 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
             fflush(eventsf);
         }
         if (tracef) {
-            // trace (new clean format) - free old mapping
             if (known_old) {
-                PrintFreeKnown(tid,
-                    (ADDRINT)snap_old.start,
-                    snap_old.size,
-                    snap_old.tag.c_str(),     // Region_Type
-                    (ADDRINT)oldp,            // Free_ptr = oldp passed to mremap
-                    srcFileC,
-                    (int)srcLine,
-                    imgC,
-                    (unsigned long)imgOff,
-                    caller_ip
-                );
+                fprintf(tracef,
+                        "T%u free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)snap_old.start, snap_old.size, snap_old.tag.c_str(),
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
             } else {
-                PrintFreeUnknown(tid,
-                    (ADDRINT)oldp,            // Free_ptr
-                    srcFileC,
-                    (int)srcLine,
-                    imgC,
-                    (unsigned long)imgOff,
-                    caller_ip
-                );
+                fprintf(tracef,
+                        "T%u free  start=%p tag=UNKNOWN site=%s:%d img=%s+0x%lx pc=%p\n",
+                        (unsigned)tid,
+                        (void*)oldp,
+                        srcFileC, (int)srcLine,
+                        imgC, (unsigned long)imgOff,
+                        (void*)caller_ip);
             }
-            //fflush(tracef);
+            fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
     }
@@ -1322,43 +1631,78 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
             fflush(eventsf);
         }
         if (tracef) {
-            PrintAlloc(tid,
-                        (ADDRINT)ret,
-                        newsz,
-                        "mremap",
-                        srcFileC,
-                        (int)srcLine,
-                        imgC,
-                        (unsigned long)imgOff,
-                        caller_ip
-                    );
-            //fflush(tracef);
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=mremap site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid,
+                    (void*)ret, newsz,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(tracef);
         }
         PIN_ReleaseLock(&g_events_lock);
     }
 }
 
-
-
-static VOID AfterStrdup(ADDRINT ret, const char* s, ADDRINT caller_ip) {
-    if (!ret) return;
-    size_t sz = s ? (strlen(s) + 1) : 1;
-    AfterMalloc(ret, sz, caller_ip); // reuse
-}
-
-static VOID AfterStrndup(ADDRINT ret, const char* s, size_t n, ADDRINT caller_ip) {
-    if (!ret) return;
-    // strndup allocates up to n chars + '\0'
-    size_t actual = 0;
-    if (s) {
-        // bounded strlen
-        while (actual < n && s[actual] != '\0') actual++;
-    }
-    size_t sz = actual + 1;
-    AfterMalloc(ret, sz, caller_ip);
-}
 //claude:
-// brk function
+// ---------- brk() hook ----------
+static ADDRINT g_last_brk = 0;
+
+static VOID AfterBrk(ADDRINT ret, ADDRINT new_brk, ADDRINT caller_ip) {
+    if (ret == (ADDRINT)-1) return; // failed
+    if (ret == 0) return; // query only
+    
+    THREADID tid = PIN_ThreadId();
+    
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+    
+    // image name + offset
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+    
+    // brk() returns current break point
+    // If it increased, we have a new allocation
+    if (g_last_brk != 0 && ret > g_last_brk) {
+        size_t size = (size_t)(ret - g_last_brk);
+        
+        PIN_GetLock(&g_regions_lock, tid);
+        Region r;
+        r.start = g_last_brk;
+        r.size = size;
+        r.tag = "heap:brk";
+        g_regions[r.start] = r;
+        PIN_ReleaseLock(&g_regions_lock);
+        
+        PIN_GetLock(&g_events_lock, tid);
+        if (eventsf) {
+            fprintf(eventsf,
+                    "alloc start=%p size=%zu tag=heap:brk site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)r.start, r.size,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u alloc start=%p size=%zu tag=heap:brk site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid, (void*)r.start, r.size,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+    
+    g_last_brk = ret;
+}
 // claude
 
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
@@ -1377,14 +1721,6 @@ static VOID HookLibcAllocators(IMG img) {
     //if (imgName.find("ld-linux") != string::npos) return;
    // if (imgName.find("libpindwarf") != string::npos) return;
     //if (imgName.find("pin") != string::npos && imgName.find("/pin/") != string::npos) return;
-
-     // Hook ΜΟΝΟ σε allocator-related libs για να μην πιάνεις stubs / άσχετα symbols
-     bool is_libc     = (imgName.find("libc.so") != string::npos);
-     bool is_jemalloc = (imgName.find("jemalloc") != string::npos);
-     bool is_tcmalloc = (imgName.find("tcmalloc") != string::npos);
- 
-     if (!(is_libc || is_jemalloc || is_tcmalloc)) return;
- 
 
     auto LogHook = [&](const char* what) {
         PIN_GetLock(&g_events_lock, 0);
@@ -1423,7 +1759,7 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
 
-    auto HookBefore1 = [&](const char* sym, AFUNPTR fn) {
+    /*auto HookBefore1 = [&](const char* sym, AFUNPTR fn) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -1435,20 +1771,16 @@ static VOID HookLibcAllocators(IMG img) {
         RTN_Close(r);
         LogHook(sym);
         return true;
-    };
-
-    
+    };*/
 
     for (SEC s = IMG_SecHead(img); SEC_Valid(s); s = SEC_Next(s)) {
         for (RTN r = SEC_RtnHead(s); RTN_Valid(r); r = RTN_Next(r)) {
     
             std::string raw = RTN_Name(r);
-            if (IsPltStub(raw)) continue;   // <<< ΣΗΜΑΝΤΙΚΟ: μην κάνεις hook malloc@plt/free@plt
-
             std::string bn  = BaseSym(raw);
     
             // -------- malloc --------
-            if (bn == "malloc" || bn == "__libc_malloc" || bn == "je_malloc" || bn == "tc_malloc") {
+            if (bn == "malloc" || bn == "__libc_malloc") {
                 if (!TryMarkHooked(r)) continue;
                 RTN_Open(r);
                 RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMalloc),
@@ -1461,8 +1793,7 @@ static VOID HookLibcAllocators(IMG img) {
             }
     
             // -------- free --------
-            else if (bn == "free" || bn == "__libc_free" || bn == "cfree" || bn == "__libc_cfree" ||
-                bn == "je_free" || bn == "tc_free") {
+            else if (bn == "free" || bn == "__libc_free" || bn == "cfree" || bn == "__libc_cfree") {
                 if (!TryMarkHooked(r)) continue;
                 RTN_Open(r);
                 RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeFree),
@@ -1474,7 +1805,7 @@ static VOID HookLibcAllocators(IMG img) {
             }
     
             // -------- calloc(nmemb,size) --------
-            else if (bn == "calloc" || bn == "__libc_calloc" || bn == "je_calloc" || bn == "tc_calloc") {
+            else if (bn == "calloc" || bn == "__libc_calloc") {
                 if (!TryMarkHooked(r)) continue;
                 RTN_Open(r);
                 RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
@@ -1488,7 +1819,7 @@ static VOID HookLibcAllocators(IMG img) {
             }
     
             // -------- realloc(old,size) --------
-            else if (bn == "realloc" || bn == "__libc_realloc" || bn == "je_realloc" || bn == "tc_realloc") {
+            else if (bn == "realloc" || bn == "__libc_realloc") {
                 if (!TryMarkHooked(r)) continue;
                 RTN_Open(r);
                 RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
@@ -1501,54 +1832,113 @@ static VOID HookLibcAllocators(IMG img) {
                 LogHook(raw.c_str());
             }
             // -------- reallocarray(old, nmemb, size) --------
-            else if (bn == "reallocarray" || bn == "__libc_reallocarray" || bn == "je_reallocarray") {
-                if (!TryMarkHooked(r)) continue;
+else if (bn == "reallocarray" || bn == "__libc_reallocarray") {
+    if (!TryMarkHooked(r)) continue;
+    RTN_Open(r);
+    RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
+        IARG_FUNCRET_EXITPOINT_VALUE,          // ret
+        IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // oldp
+        IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // nmemb
+        IARG_FUNCARG_ENTRYPOINT_VALUE, 2,      // elemsz
+        IARG_RETURN_IP,
+        IARG_END);
+    RTN_Close(r);
+    LogHook(raw.c_str());
+}
+        }
+    }
+    // malloc/calloc/realloc/free — hook both public + __libc_* names
+    /*HookAfterRet1("malloc",        AFUNPTR(AfterMalloc));
+    HookAfterRet1("__libc_malloc", AFUNPTR(AfterMalloc));
+
+    // calloc has 2 args
+    {
+        RTN r = RTN_FindByName(img, "calloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
                 RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
-                    IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // oldp
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // nmemb
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,      // elemsz
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-            else if (bn == "strdup" || bn == "__strdup" || bn == "__GI___strdup") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrdup),
-                    IARG_FUNCRET_EXITPOINT_VALUE,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-            else if (bn == "strndup" || bn == "__strndup" || bn == "__GI___strndup") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrndup),
+                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
                     IARG_FUNCRET_EXITPOINT_VALUE,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
                     IARG_RETURN_IP,
                     IARG_END);
                 RTN_Close(r);
-                LogHook(raw.c_str());
+                LogHook("calloc");
+            }
+        }
+        r = RTN_FindByName(img, "__libc_calloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+                RTN_Open(r);
+                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
+                    IARG_FUNCRET_EXITPOINT_VALUE,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_RETURN_IP,
+                    IARG_END);
+                RTN_Close(r);
+                LogHook("__libc_calloc");
             }
         }
     }
 
+    // realloc: (oldptr, size)
+    {
+        RTN r = RTN_FindByName(img, "realloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
+                IARG_FUNCRET_EXITPOINT_VALUE,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_RETURN_IP,
+                IARG_END);
+            RTN_Close(r);
+            LogHook("realloc");
+            }
+        }
+        r = RTN_FindByName(img, "__libc_realloc");
+        if (RTN_Valid(r)) {
+            if (TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
+                IARG_FUNCRET_EXITPOINT_VALUE,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                IARG_RETURN_IP,
+                IARG_END);
+            RTN_Close(r);
+            LogHook("__libc_realloc");
+            }
+        }
+    }
 
-    // --- Bulletproof explicit hooks for common aliases ---
-    HookAfterRet1("malloc",       AFUNPTR(AfterMalloc));        // ret, size(0), return_ip
-    HookAfterRet1("__libc_malloc",AFUNPTR(AfterMalloc));
+        // reallocarray: (oldptr, nmemb, size)
+        {
+            for (const char* sym : {"reallocarray", "__libc_reallocarray"}) {
+                RTN r = RTN_FindByName(img, sym);
+                if (RTN_Valid(r)) {
+                    if (TryMarkHooked(r)) {
+                        RTN_Open(r);
+                        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
+                            IARG_FUNCRET_EXITPOINT_VALUE,        // ret
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,    // oldp
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,    // nmemb
+                            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,    // size
+                            IARG_RETURN_IP,                      // caller_ip
+                            IARG_END);
+                        RTN_Close(r);
+                        LogHook(sym);
+                    }
+                }
+            }
+        }
 
-    HookBefore1 ("free",          AFUNPTR(BeforeFree));         // ptr(0), return_ip
-    HookBefore1 ("__libc_free",   AFUNPTR(BeforeFree));
-    HookBefore1 ("cfree",         AFUNPTR(BeforeFree));
-    HookBefore1 ("__libc_cfree",  AFUNPTR(BeforeFree));
+    // free: before (ptr)
+    HookBefore1("free",        AFUNPTR(BeforeFree));
+    HookBefore1("__libc_free", AFUNPTR(BeforeFree));*/
 
     // extra aliases
     //HookBefore1("cfree",        AFUNPTR(BeforeFree));
@@ -1559,17 +1949,6 @@ static VOID HookLibcAllocators(IMG img) {
     HookAfterRet2("memalign",      AFUNPTR(AfterMemalign));
     HookAfterRet1("valloc",        AFUNPTR(AfterValloc));
     HookAfterRet1("pvalloc",       AFUNPTR(AfterPvalloc));
-
-        // jemalloc explicit
-        HookAfterRet1("je_malloc",  AFUNPTR(AfterMalloc));
-        HookBefore1 ("je_free",     AFUNPTR(BeforeFree));
-        HookAfterRet2("je_calloc",  AFUNPTR(AfterCalloc));   // NOTE: je_calloc έχει 2 args (nmemb,size)
-        HookAfterRet2("je_realloc", AFUNPTR(AfterRealloc));  // NOTE: je_realloc έχει 2 args (old,size) -> ok με HookAfterRet2? όχι! (δες σημείωση)
-
-
-        HookBefore1 ("__GI___libc_free", AFUNPTR(BeforeFree));
-        HookBefore1 ("__GI_free",        AFUNPTR(BeforeFree));
-        HookBefore1 ("__GI___free",      AFUNPTR(BeforeFree));
 
     // posix_memalign returns int, writes pointer to *memptr
     {
@@ -1592,8 +1971,7 @@ static VOID HookLibcAllocators(IMG img) {
     // ---------------- mmap/munmap/mremap hooks ----------------
 {
     // mmap variants
-    //for (const char* sym : {"mmap", "mmap64", "__mmap"}) {
-    for (const char* sym : {"mmap", "mmap64", "__mmap", "__mmap64", "__GI___mmap", "__GI___mmap64"}) {
+    for (const char* sym : {"mmap", "mmap64", "__mmap"}) {
         RTN r = RTN_FindByName(img, sym);
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
@@ -1609,8 +1987,7 @@ static VOID HookLibcAllocators(IMG img) {
     }
 
     // munmap variants
-    //for (const char* sym : {"munmap", "__munmap"}) {
-    for (const char* sym : {"munmap", "__munmap", "__GI___munmap"}) {
+    for (const char* sym : {"munmap", "__munmap"}) {
         RTN r = RTN_FindByName(img, sym);
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
@@ -1627,8 +2004,7 @@ static VOID HookLibcAllocators(IMG img) {
     }
 
     // mremap variants
-    //for (const char* sym : {"mremap", "__mremap"}) {
-    for (const char* sym : {"mremap", "__mremap", "__GI___mremap"}) {
+    for (const char* sym : {"mremap", "__mremap"}) {
         RTN r = RTN_FindByName(img, sym);
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
@@ -1645,7 +2021,22 @@ static VOID HookLibcAllocators(IMG img) {
         }
     }
 }
-
+//claude:
+// ---------- brk() hook ----------
+{
+    RTN r = RTN_FindByName(img, "brk");
+    if (RTN_Valid(r) && TryMarkHooked(r)) {
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterBrk),
+            IARG_FUNCRET_EXITPOINT_VALUE,          // ret (current brk)
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // new_brk requested
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook("brk");
+    }
+}
+//claude
 
 }
 
