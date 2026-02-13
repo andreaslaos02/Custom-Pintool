@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <limits>
 #include <cstring>
+#include <malloc.h>   // malloc_usable_size
 
 using std::string;
 
@@ -70,6 +71,20 @@ struct ThreadCtx {
     {}
 };
 static TLS_KEY g_tls_key;
+
+
+static inline size_t NormalizeAllocSize(void* p, size_t requested) {
+    if (!p) return 0;
+
+    size_t bytes = requested;
+
+    if (bytes == 0) {
+        bytes = malloc_usable_size(p);   // glibc
+        if (bytes == 0) bytes = 1;       // fallback sentinel
+    }
+
+    return bytes;
+}
 
 
 // Helper gia IMG name
@@ -676,6 +691,9 @@ static VOID HookDummySites(IMG img)
 static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (!ret ) return;      //|| sz == 0
     THREADID tid = PIN_ThreadId();
+    //real size
+    size_t bytes = NormalizeAllocSize((void*)ret, sz);
+
     //debug msg
     PIN_GetLock(&g_events_lock, tid);
     if (logf) {
@@ -701,7 +719,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = sz; r.tag = "heap:malloc";
+    Region r; r.start = ret; r.size = bytes; r.tag = "heap:malloc";     //r.size =sz;  //θα το αλλάξουμε σε πραγματικό size με βάση το malloc_usable_size
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
     PIN_GetLock(&g_events_lock, tid);
@@ -709,7 +727,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     // trace (new clean format)
     PrintAlloc(tid,
         (ADDRINT)ret,
-        sz,
+        bytes,          //sz
         "heap:malloc",                 // Type
         srcFileC,
         (int)srcLine,
@@ -746,7 +764,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     } else {
         bytes = 0; // calloc(0, x) ή calloc(x,0) -> bytes 0 αλλά ptr μπορεί να είναι non-null
     }
-
+    bytes = NormalizeAllocSize((void*)ret, bytes);
     THREADID tid = PIN_ThreadId();
 
     // caller source location
@@ -863,9 +881,10 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
     }
 
     // new allocation
-    if (ret && sz) {
+    if (ret) {
+        size_t bytes = NormalizeAllocSize((void*)ret, sz);
         PIN_GetLock(&g_regions_lock, tid);
-        Region r; r.start = ret; r.size = sz; r.tag = "heap:realloc";
+        Region r; r.start = ret; r.size = bytes; r.tag = "heap:realloc";
         g_regions[ret] = r;
         PIN_ReleaseLock(&g_regions_lock);
 
@@ -883,7 +902,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
            
             PrintAlloc(tid,
                 (ADDRINT)ret,
-                sz,
+                bytes,
                 "heap:realloc",
                 srcFileC,
                 (int)srcLine,
