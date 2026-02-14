@@ -11,6 +11,11 @@
 #include <limits>
 #include <cstring>
 #include <malloc.h>   // malloc_usable_size
+//for ParseProcMaps
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <cstdlib>   // strtoull
 
 using std::string;
 
@@ -85,6 +90,7 @@ static inline size_t NormalizeAllocSize(void* p, size_t requested) {
 
     return bytes;
 }
+
 
 
 // Helper gia IMG name
@@ -283,6 +289,128 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
     return false;
 }
 
+static VOID ParseProcMaps()
+{
+    std::ifstream in("/proc/self/maps");
+    if (!in.is_open()) {
+        PIN_GetLock(&g_events_lock, 0);
+        if (logf) { fprintf(logf, "[ParseProcMaps] failed to open /proc/self/maps\n"); fflush(logf); }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    std::string line;
+    size_t added = 0, skipped = 0;
+
+    PIN_GetLock(&g_regions_lock, 0);
+
+    while (std::getline(in, line)) {
+        // Format:
+        // start-end perms offset dev inode [pathname]
+        //
+        // Example:
+        // 7f0bdc000000-7f0bdc021000 rw-p 00000000 00:00 0
+        // 55ae734fa000-55ae7351b000 rw-p 00000000 00:00 0 [heap]
+        //
+        std::istringstream iss(line);
+        std::string addr, perms, offset, dev, inode;
+        std::string pathname;
+
+        if (!(iss >> addr >> perms >> offset >> dev >> inode)) {
+            skipped++;
+            continue;
+        }
+
+        // rest of line (optional pathname)
+        std::getline(iss, pathname);
+        if (!pathname.empty() && pathname[0] == ' ') pathname.erase(0, 1);
+
+        // Parse start-end
+        auto dash = addr.find('-');
+        if (dash == std::string::npos) { skipped++; continue; }
+
+        std::string start_s = addr.substr(0, dash);
+        std::string end_s   = addr.substr(dash + 1);
+
+        ADDRINT start = 0, end = 0;
+
+        char* e1 = nullptr;
+        char* e2 = nullptr;
+
+        unsigned long long s = strtoull(start_s.c_str(), &e1, 16);
+        unsigned long long e = strtoull(end_s.c_str(),   &e2, 16);
+
+        if (!e1 || *e1 != '\0' || !e2 || *e2 != '\0') {
+            skipped++;
+            continue;
+        }
+
+        start = (ADDRINT)s;
+        end   = (ADDRINT)e;
+        if (end <= start) { skipped++; continue; }
+        size_t size = (size_t)(end - start);
+
+        // ---- FILTERING (important) ----
+        // We want to seed mostly anonymous/private mmaps that can later be freed by libc
+        // and cause UNKNOWN if they happened before hooks.
+        //
+        // Skip obvious "big general segments" that can create noise:
+        // - [heap] and [stack]
+        // - file-backed shared libs (pathname with '/')
+        //
+        // Keep:
+        // - anonymous mappings (empty pathname)
+        // - special bracket mappings like [anon], [vdso], etc (optional)
+        //
+        bool is_heap  = (pathname.find("[heap]")  != std::string::npos);
+        bool is_stack = (pathname.find("[stack]") != std::string::npos);
+
+        if (is_heap || is_stack) { skipped++; continue; }
+
+        bool file_backed = (!pathname.empty() && pathname[0] == '/');
+        if (file_backed) { skipped++; continue; }
+
+        // Optional: keep only writable private mappings (common for malloc mmaps)
+        // perms example: "rw-p"
+        bool is_private = (perms.size() >= 4 && perms[3] == 'p');
+       // bool is_writable = (!perms.empty() && perms.find('w') != std::string::npos);
+        if (!(is_private )) {           //&& is_writable
+            // If you want more coverage, comment this out.
+            skipped++;
+            continue;
+        }
+
+        // Insert mapping as a region
+        Region r;
+        r.start = start;
+        r.size  = size;
+
+        // Tag for debugging
+        if (pathname.empty()) r.tag = "procmap:anon";
+        else                  r.tag = "procmap:" + pathname; // e.g. [vdso]
+
+        // Avoid duplicates: if already present, don't override.
+        if (g_regions.find(r.start) == g_regions.end()) {
+            g_regions[r.start] = r;
+            added++;
+        } else {
+            skipped++;
+        }
+    }
+
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, 0);
+    if (logf) {
+        fprintf(logf, "[ParseProcMaps] added=%zu skipped=%zu\n", added, skipped);
+        fflush(logf);
+    }
+    if (tracef) {
+        fprintf(tracef, "#ParseProcMaps added=%zu skipped=%zu\n", added, skipped);
+        fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
 
 static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
     BOOL hasHandler, const EXCEPTION_INFO* pExceptInfo, VOID* v)
@@ -1745,7 +1873,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Parse pre-existing allocations (ΜΕΤΑ τα αρχεία)
-    //ParseProcMaps();
+    ParseProcMaps();
 
     // Callbacks
     IMG_AddInstrumentFunction(ImageLoad, 0);
