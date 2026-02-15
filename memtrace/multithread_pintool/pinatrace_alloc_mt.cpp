@@ -53,6 +53,66 @@ static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
 static std::set<ADDRINT> g_hooked_rtn_addrs;
 static PIN_LOCK g_hook_lock;
 
+
+// ------------------- Prototypes for allocator RTNs (IMPORTANT) -------------------
+static PROTO g_pMalloc = nullptr;
+static PROTO g_pFree = nullptr;
+static PROTO g_pCalloc = nullptr;
+static PROTO g_pRealloc = nullptr;
+static PROTO g_pReallocarray = nullptr;
+static PROTO g_pAlignedAlloc = nullptr;
+static PROTO g_pMemalign = nullptr;
+static PROTO g_pValloc = nullptr;
+static PROTO g_pPvalloc = nullptr;
+static PROTO g_pPosixMemalign = nullptr;
+
+static VOID InitAllocatorProtosOnce() {
+    if (g_pMalloc) return; // already initialized
+
+    g_pMalloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "malloc",
+        PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pFree = PROTO_Allocate(
+        PIN_PARG(void), CALLINGSTD_DEFAULT, "free",
+        PIN_PARG(void*), PIN_PARG_END());
+
+    g_pCalloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "calloc",
+        PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pRealloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "realloc",
+        PIN_PARG(void*), PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pReallocarray = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "reallocarray",
+        PIN_PARG(void*), PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pAlignedAlloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "aligned_alloc",
+        PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pMemalign = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "memalign",
+        PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pValloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "valloc",
+        PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pPvalloc = PROTO_Allocate(
+        PIN_PARG(void*), CALLINGSTD_DEFAULT, "pvalloc",
+        PIN_PARG(size_t), PIN_PARG_END());
+
+    g_pPosixMemalign = PROTO_Allocate(
+        PIN_PARG(int), CALLINGSTD_DEFAULT, "posix_memalign",
+        PIN_PARG(void**), PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
+}
+
+
+
+
 // Thread-local context: per-thread state
 struct ThreadCtx {
     FILE* out;  // ΔΕΝ χρησιμοποιείται πλέον για αρχεία
@@ -80,7 +140,7 @@ struct ThreadCtx {
 static TLS_KEY g_tls_key;
 
 
-static inline size_t NormalizeAllocSize(void* p, size_t requested) {
+/*static inline size_t NormalizeAllocSize(void* p, size_t requested) {
     if (!p) return 0;
 
     size_t bytes = requested;
@@ -91,6 +151,37 @@ static inline size_t NormalizeAllocSize(void* p, size_t requested) {
     }
 
     return bytes;
+}
+
+static inline size_t NormalizeAllocSize(void* p, size_t requested) {
+    if (!p) return 0;
+
+    size_t usable = malloc_usable_size(p);   // glibc usable bytes
+    size_t bytes  = requested;
+
+    // Πάρε το μεγαλύτερο (requested vs usable)
+    if (usable > bytes) bytes = usable;
+
+    // Αν και τα δύο είναι 0 (σπάνιο), βάλε 1
+    if (bytes == 0) bytes = 1;
+
+    return bytes;
+}*/
+
+static inline size_t NormalizeAllocSize(void* p, size_t requested) {
+    if (!p) return 0;
+
+    // glibc usable size (real chunk capacity)
+    size_t usable = malloc_usable_size(p);
+
+    // Αν για κάποιο λόγο δεν παίξει, fallback
+    if (usable == 0) {
+        if (requested == 0) return 1;
+        return requested;
+    }
+
+    // Κράτα usable ώστε να μην βγάζεις false OOB λόγω rounding/alignment
+    return usable;
 }
 
 
@@ -436,7 +527,8 @@ return FALSE; // do not deliver to application
 }
 
 // --------------------- Record memory accesses --------------------
-static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
+/*static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
+ {
     if (!tracef) return;
     if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
@@ -444,20 +536,83 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea) {
     size_t off = 0;
 
     if (!FindRegionWithOff(a, snap, off)) return;
-    if (off >= snap.size) return;
 
-    PIN_GetLock(&g_events_lock, tid);
-    /*fprintf(tracef, "T%u %p: load  %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);*/
-    fprintf(tracef,
-            "T%u %p: load  base: %p full: %p tag=%s off=%zu\n",
+    // Αν for some reason bytes==0, κάνε fallback 1 (σπάνιο αλλά safe)
+    if (bytes == 0) bytes = 1;
+
+    //if (off >= snap.size) return;
+
+    //PIN_GetLock(&g_events_lock, tid);
+   
+    //fprintf(tracef,
+      //      "T%u %p: load  base: %p full: %p tag=%s off=%zu\n",
+        //    (unsigned)tid, ip,
+          //  (void*)snap.start, (void*)a,
+            //snap.tag.c_str(), off);
+    //PIN_ReleaseLock(&g_events_lock);
+    // ΣΩΣΤΟ bounds check:
+    if (off + (size_t)bytes > snap.size) {
+        // optional: γράψε anomaly για OOB
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(tracef,
+            "T%u %p: OOB_LOAD base:%p full:%p tag=%s off=%zu size=%u region_size=%zu\n",
             (unsigned)tid, ip,
             (void*)snap.start, (void*)a,
-            snap.tag.c_str(), off);
+            snap.tag.c_str(), off, bytes, snap.size);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef,
+        "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u\n",
+        (unsigned)tid, ip,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes);
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
+{
+    if (!tracef) return;
+    if (!g_trace_memops) return;
+
+    const ADDRINT ipA = (ADDRINT)ip;
+    const ADDRINT a   = (ADDRINT)ea;
+
+    Region snap;
+    size_t off = 0;
+    if (!FindRegionWithOff(a, snap, off)) return;
+
+    if (bytes == 0) bytes = 1;
+
+    // IMG + offset for the *instruction pointer*
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(ipA, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str(); // ή imgName.c_str() για full path
+
+    if (off + (size_t)bytes > snap.size) {
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(tracef,
+            "T%u %p: OOB_LOAD base:%p full:%p tag=%s off=%zu size=%u region_size=%zu ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes, snap.size,
+            imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef,
+        "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
+        (unsigned)tid, (void*)ipA,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes,
+        imgC, (unsigned long)imgOff);
     PIN_ReleaseLock(&g_events_lock);
 }
-
-static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
+/*static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (!tracef) return;
     if (!g_trace_memops) return;
     const ADDRINT a = (ADDRINT)ea;
@@ -468,16 +623,84 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
     if (off >= snap.size) return;
 
     PIN_GetLock(&g_events_lock, tid);
-    /*fprintf(tracef, "T%u %p: store %p tag=%s off=%zu\n",
-            (unsigned)tid, ip, (void*)a, snap.tag.c_str(), off);*/
-    fprintf(tracef,
+     fprintf(tracef,
                 "T%u %p: store base: %p full: %p tag=%s off=%zu\n",
                 (unsigned)tid, ip,
                 (void*)snap.start, (void*)a,
                 snap.tag.c_str(), off);
     PIN_ReleaseLock(&g_events_lock);
-}
+}*/
+/*static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes) {
+    if (!tracef) return;
+    if (!g_trace_memops) return;
 
+    const ADDRINT a = (ADDRINT)ea;
+    Region snap;
+    size_t off = 0;
+
+    if (!FindRegionWithOff(a, snap, off)) return;
+
+    if (bytes == 0) bytes = 1;
+
+    if (off + (size_t)bytes > snap.size) {
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(tracef,
+            "T%u %p: OOB_STORE base:%p full:%p tag=%s off=%zu size=%u region_size=%zu\n",
+            (unsigned)tid, ip,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes, snap.size);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef,
+        "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u\n",
+        (unsigned)tid, ip,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes);
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
+{
+    if (!tracef) return;
+    if (!g_trace_memops) return;
+
+    const ADDRINT ipA = (ADDRINT)ip;
+    const ADDRINT a   = (ADDRINT)ea;
+
+    Region snap;
+    size_t off = 0;
+    if (!FindRegionWithOff(a, snap, off)) return;
+
+    if (bytes == 0) bytes = 1;
+
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(ipA, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    if (off + (size_t)bytes > snap.size) {
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(tracef,
+            "T%u %p: OOB_STORE base:%p full:%p tag=%s off=%zu size=%u region_size=%zu ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes, snap.size,
+            imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    fprintf(tracef,
+        "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
+        (unsigned)tid, (void*)ipA,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes,
+        imgC, (unsigned long)imgOff);
+    PIN_ReleaseLock(&g_events_lock);
+}
 
 static BOOL ShouldInstrumentIns(INS ins) {
 
@@ -499,14 +722,28 @@ static VOID Instruction(INS ins, VOID*) {
     const UINT32 n = INS_MemoryOperandCount(ins);
     for (UINT32 i = 0; i < n; ++i) {
         if (INS_MemoryOperandIsRead(ins, i)) {
-            INS_InsertPredicatedCall(
+            /*INS_InsertPredicatedCall(
                 ins, IPOINT_BEFORE, AFUNPTR(RecordRead),
-                IARG_THREAD_ID, IARG_INST_PTR, IARG_MEMORYOP_EA, i, IARG_END);
+                IARG_THREAD_ID, IARG_INST_PTR, IARG_MEMORYOP_EA, i, IARG_END);*/
+                INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, AFUNPTR(RecordRead),
+                    IARG_THREAD_ID,
+                    IARG_INST_PTR,
+                    IARG_MEMORYOP_EA, i,
+                    IARG_MEMORYOP_SIZE, i,
+                    IARG_END);
         }
         if (INS_MemoryOperandIsWritten(ins, i)) {
-            INS_InsertPredicatedCall(
+            /*INS_InsertPredicatedCall(
                 ins, IPOINT_BEFORE, AFUNPTR(RecordWrite),
-                IARG_THREAD_ID, IARG_INST_PTR, IARG_MEMORYOP_EA, i, IARG_END);
+                IARG_THREAD_ID, IARG_INST_PTR, IARG_MEMORYOP_EA, i, IARG_END);*/
+                INS_InsertPredicatedCall(
+                    ins, IPOINT_BEFORE, AFUNPTR(RecordWrite),
+                    IARG_THREAD_ID,
+                    IARG_INST_PTR,
+                    IARG_MEMORYOP_EA, i,
+                    IARG_MEMORYOP_SIZE, i,
+                    IARG_END);
         }
     }
 }
@@ -829,9 +1066,13 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (logf) {
         std::string imgName; ADDRINT imgOff = 0;
         GetImgFromIp(caller_ip, imgName, imgOff);
-        fprintf(logf, "[MALLOC HIT] ret=%p sz=%zu caller_pc=%p img=%s+0x%lx\n",
+        /*fprintf(logf, "[MALLOC HIT] ret=%p sz=%zu caller_pc=%p img=%s+0x%lx\n",
                 (void*)ret, sz, (void*)caller_ip,
-                imgName.c_str(), (unsigned long)imgOff);
+                imgName.c_str(), (unsigned long)imgOff);*/
+                size_t usable_dbg = malloc_usable_size((void*)ret);
+                fprintf(logf, "[MALLOC HIT] ret=%p req=%zu usable=%zu caller_pc=%p img=%s+0x%lx\n",
+                        (void*)ret, sz, usable_dbg, (void*)caller_ip,
+                        imgName.c_str(), (unsigned long)imgOff);
         fflush(logf);
     }
     PIN_ReleaseLock(&g_events_lock);
@@ -868,13 +1109,20 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
 
     // eventsf (προαιρετικά: κράτα παλιό format για scripts)
     if (eventsf) {
-        fprintf(eventsf,
+        /*fprintf(eventsf,
             "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
             (void*)ret, sz,
             srcFileC, (int)srcLine,
             imgC, (unsigned long)imgOff,
             (void*)caller_ip);
-        fflush(eventsf);
+        fflush(eventsf);*/
+        fprintf(eventsf,
+            "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
+            (void*)ret, bytes,
+            srcFileC, (int)srcLine,
+            imgC, (unsigned long)imgOff,
+            (void*)caller_ip);
+        fflush(eventsf);    
     }
 
     PIN_ReleaseLock(&g_events_lock);
@@ -1022,7 +1270,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         if (eventsf) {
             fprintf(eventsf,
                     "alloc start=%p size=%zu tag=heap:realloc site=%s:%d img=%s+0x%lx pc=%p\n",
-                    (void*)ret, sz,
+                    (void*)ret, bytes,
                     srcFileC, (int)srcLine,
                     imgC, (unsigned long)imgOff,
                     (void*)caller_ip);
@@ -1076,7 +1324,10 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
     if (it != g_regions.begin()) {
         --it;
         const Region &r = it->second;
-        if (a >= r.start && a < (r.start + r.size)) {
+        ADDRINT end = r.start + (ADDRINT)r.size;
+        if (end >= r.start && a >= r.start && a < end) {
+
+       // if (a >= r.start && a < (r.start + r.size)) {
             out = r;
             off = (size_t)(a - r.start);        //return offset here instead of calculatig in RecordRead/Write.
             found = true;
@@ -1244,7 +1495,7 @@ static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, s
     void** memptr = (void**)memptr_ptr;
     if (!memptr) return;
     void* p = *memptr;
-    if (!p || sz == 0) return;
+    if (!p ) return;    //|| sz == 0
     AfterMalloc((ADDRINT)p, sz, caller_ip);
 }
 
@@ -1533,6 +1784,7 @@ static VOID HookLibcAllocators(IMG img) {
      bool is_tcmalloc = (imgName.find("tcmalloc") != string::npos);
  
      if (!(is_libc || is_jemalloc || is_tcmalloc)) return;
+     InitAllocatorProtosOnce();
  
 
     auto LogHook = [&](const char* what) {
@@ -1541,7 +1793,7 @@ static VOID HookLibcAllocators(IMG img) {
         PIN_ReleaseLock(&g_events_lock);
     };
 
-    auto HookAfterRet1 = [&](const char* sym, AFUNPTR fn) {
+    /*auto HookAfterRet1 = [&](const char* sym, AFUNPTR fn) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -1687,11 +1939,187 @@ static VOID HookLibcAllocators(IMG img) {
                 LogHook(raw.c_str());
             }
         }
-    }
+    }*/
 
+    auto HookAfterMallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMalloc),
+            IARG_PROTOTYPE, g_pMalloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookBeforeFreeLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeFree),
+            IARG_PROTOTYPE, g_pFree,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // ptr
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterCallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
+            IARG_PROTOTYPE, g_pCalloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // nmemb
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterReallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
+            IARG_PROTOTYPE, g_pRealloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // oldp
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterReallocarrayLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
+            IARG_PROTOTYPE, g_pReallocarray,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // oldp
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // nmemb
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,  // elemsz
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterAlignedAllocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterAlignedAlloc),
+            IARG_PROTOTYPE, g_pAlignedAlloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // alignment
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterMemalignLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMemalign),
+            IARG_PROTOTYPE, g_pMemalign,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // alignment
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterVallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterValloc),
+            IARG_PROTOTYPE, g_pValloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterPvallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterPvalloc),
+            IARG_PROTOTYPE, g_pPvalloc,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
+    
+    auto HookAfterPosixMemalignLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterPosixMemalign),
+            IARG_PROTOTYPE, g_pPosixMemalign,
+            IARG_FUNCRET_EXITPOINT_VALUE,      // rc
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // void** memptr
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // alignment
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,  // size
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };
 
     // --- Bulletproof explicit hooks for common aliases ---
-    HookAfterRet1("malloc",       AFUNPTR(AfterMalloc));        // ret, size(0), return_ip
+    /*HookAfterRet1("malloc",       AFUNPTR(AfterMalloc));        // ret, size(0), return_ip
     HookAfterRet1("__libc_malloc",AFUNPTR(AfterMalloc));
 
     HookBefore1 ("free",          AFUNPTR(BeforeFree));         // ptr(0), return_ip
@@ -1718,10 +2146,98 @@ static VOID HookLibcAllocators(IMG img) {
 
         HookBefore1 ("__GI___libc_free", AFUNPTR(BeforeFree));
         HookBefore1 ("__GI_free",        AFUNPTR(BeforeFree));
-        HookBefore1 ("__GI___free",      AFUNPTR(BeforeFree));
+        HookBefore1 ("__GI___free",      AFUNPTR(BeforeFree));*/
+
+        // ---------------- Deterministic hooks (with PROTOTYPE) ----------------
+
+// malloc aliases
+for (const char* sym : {
+    "malloc", "__libc_malloc", "__GI___libc_malloc",
+    "__GI_malloc"
+}) {
+    HookAfterMallocLike(sym);
+}
+
+// free aliases
+for (const char* sym : {
+    "free", "__libc_free", "__GI___libc_free",
+    "cfree", "__libc_cfree",
+    "__GI_free"
+}) {
+    HookBeforeFreeLike(sym);
+}
+
+// calloc aliases
+for (const char* sym : {
+    "calloc", "__libc_calloc", "__GI___libc_calloc",
+    "__GI_calloc"
+}) {
+    HookAfterCallocLike(sym);
+}
+
+// realloc aliases
+for (const char* sym : {
+    "realloc", "__libc_realloc", "__GI___libc_realloc",
+    "__GI_realloc"
+}) {
+    HookAfterReallocLike(sym);
+}
+
+// reallocarray aliases
+for (const char* sym : {
+    "reallocarray", "__libc_reallocarray", "__GI___libc_reallocarray"
+}) {
+    HookAfterReallocarrayLike(sym);
+}
+
+// aligned_alloc / memalign / valloc / pvalloc
+for (const char* sym : {"aligned_alloc", "__GI_aligned_alloc"}) {
+    HookAfterAlignedAllocLike(sym);
+}
+for (const char* sym : {"memalign", "__GI_memalign"}) {
+    HookAfterMemalignLike(sym);
+}
+for (const char* sym : {"valloc", "__GI_valloc"}) {
+    HookAfterVallocLike(sym);
+}
+for (const char* sym : {"pvalloc", "__GI_pvalloc"}) {
+    HookAfterPvallocLike(sym);
+}
+
+// posix_memalign
+for (const char* sym : {"posix_memalign", "__GI_posix_memalign"}) {
+    HookAfterPosixMemalignLike(sym);
+}
+
+// ---------------- jemalloc explicit symbols ----------------
+
+// je_malloc
+for (const char* sym : { "je_malloc" }) {
+    HookAfterMallocLike(sym);
+}
+
+// je_free
+for (const char* sym : { "je_free" }) {
+    HookBeforeFreeLike(sym);
+}
+
+// je_calloc
+for (const char* sym : { "je_calloc" }) {
+    HookAfterCallocLike(sym);
+}
+
+// je_realloc
+for (const char* sym : { "je_realloc" }) {
+    HookAfterReallocLike(sym);
+}
+
+// je_reallocarray (αν υπάρχει)
+for (const char* sym : { "je_reallocarray" }) {
+    HookAfterReallocarrayLike(sym);
+}
 
     // posix_memalign returns int, writes pointer to *memptr
-    {
+  /* {
         RTN r = RTN_FindByName(img, "posix_memalign");
         if (RTN_Valid(r)) {
             if (TryMarkHooked(r)) {
@@ -1737,7 +2253,7 @@ static VOID HookLibcAllocators(IMG img) {
             LogHook("posix_memalign");
             }
         }
-    }
+    }*/
     // ---------------- mmap/munmap/mremap hooks ----------------
 {
     // mmap variants
@@ -1795,6 +2311,37 @@ static VOID HookLibcAllocators(IMG img) {
     }
 }
 
+// strdup aliases
+for (const char* sym : { "strdup", "__strdup", "__GI___strdup" }) {
+    RTN r = RTN_FindByName(img, sym);
+    if (RTN_Valid(r) && TryMarkHooked(r)) {
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrdup),
+            IARG_FUNCRET_EXITPOINT_VALUE,          // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+    }
+}
+
+// strndup aliases
+for (const char* sym : { "strndup", "__strndup", "__GI___strndup" }) {
+    RTN r = RTN_FindByName(img, sym);
+    if (RTN_Valid(r) && TryMarkHooked(r)) {
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrndup),
+            IARG_FUNCRET_EXITPOINT_VALUE,          // ret
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // size_t n
+            IARG_RETURN_IP,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+    }
+}
+
 
 }
 
@@ -1841,6 +2388,16 @@ static VOID Fini(INT32, VOID*) {
         fclose(logf);
         logf = nullptr;
     }
+    if (g_pMalloc) { PROTO_Free(g_pMalloc); g_pMalloc = nullptr; }
+if (g_pFree) { PROTO_Free(g_pFree); g_pFree = nullptr; }
+if (g_pCalloc) { PROTO_Free(g_pCalloc); g_pCalloc = nullptr; }
+if (g_pRealloc) { PROTO_Free(g_pRealloc); g_pRealloc = nullptr; }
+if (g_pReallocarray) { PROTO_Free(g_pReallocarray); g_pReallocarray = nullptr; }
+if (g_pAlignedAlloc) { PROTO_Free(g_pAlignedAlloc); g_pAlignedAlloc = nullptr; }
+if (g_pMemalign) { PROTO_Free(g_pMemalign); g_pMemalign = nullptr; }
+if (g_pValloc) { PROTO_Free(g_pValloc); g_pValloc = nullptr; }
+if (g_pPvalloc) { PROTO_Free(g_pPvalloc); g_pPvalloc = nullptr; }
+if (g_pPosixMemalign) { PROTO_Free(g_pPosixMemalign); g_pPosixMemalign = nullptr; }
     PIN_ReleaseLock(&g_events_lock);
 }
 
