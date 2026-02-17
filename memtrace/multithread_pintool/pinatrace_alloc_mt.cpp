@@ -2404,8 +2404,6 @@ if (g_pPosixMemalign) { PROTO_Free(g_pPosixMemalign); g_pPosixMemalign = nullptr
 
 // ------------------------------ main -----------------------------
 // dilwnei ta call backs kai arxizei to Pin.
-// ------------------------------ main -----------------------------
-// dilwnei ta call backs kai arxizei to Pin.
 int main(int argc, char* argv[]) {
     PIN_InitSymbols();
     if (PIN_Init(argc, argv)) return 1;
