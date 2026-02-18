@@ -12,7 +12,7 @@
 #include <signal.h>
 #include <limits>
 #include <cstring>
-#include <malloc.h>   // malloc_usable_size
+//#include <malloc.h>   // malloc_usable_size
 //for ParseProcMaps
 #include <fstream>
 #include <sstream>
@@ -126,6 +126,43 @@ struct ThreadCtx {
     int         pendingLine;
     ADDRINT pendingCallerIp;
 
+        // ---------------- pending libc allocator args (BEFORE->AFTER) ----------------
+        bool   hasPendingMalloc;
+        size_t pendingMallocSize;
+        ADDRINT pendingMallocCallerIp;
+    
+        bool   hasPendingCalloc;
+        size_t pendingCallocN;
+        size_t pendingCallocSz;
+        ADDRINT pendingCallocCallerIp;
+    
+        bool   hasPendingRealloc;
+        ADDRINT pendingReallocOldp;
+        size_t pendingReallocSz;
+        ADDRINT pendingReallocCallerIp;
+    
+        bool   hasPendingReallocarray;
+        ADDRINT pendingReallocarrayOldp;
+        size_t pendingReallocarrayNmemb;
+        size_t pendingReallocarrayElemsz;
+        ADDRINT pendingReallocarrayCallerIp;
+    
+        // (προαιρετικά αλλά καλό) mmap/munmap/mremap
+        bool   hasPendingMmap;
+        size_t pendingMmapLen;
+        ADDRINT pendingMmapCallerIp;
+    
+        bool   hasPendingMunmap;
+        ADDRINT pendingMunmapAddr;
+        size_t pendingMunmapLen;
+        ADDRINT pendingMunmapCallerIp;
+    
+        bool   hasPendingMremap;
+        ADDRINT pendingMremapOldp;
+        size_t pendingMremapOldsz;
+        size_t pendingMremapNewsz;
+        ADDRINT pendingMremapCallerIp;
+
     ThreadCtx()
         : out(nullptr),
           hasPendingAlloc(false),
@@ -134,57 +171,45 @@ struct ThreadCtx {
           pendingFunc(nullptr),
           pendingFile(nullptr),
           pendingLine(0),
-          pendingCallerIp(0)
+          pendingCallerIp(0),
+
+          hasPendingMalloc(false),
+          pendingMallocSize(0),
+          pendingMallocCallerIp(0),
+
+          hasPendingCalloc(false),
+          pendingCallocN(0),
+          pendingCallocSz(0),
+          pendingCallocCallerIp(0),
+
+          hasPendingRealloc(false),
+          pendingReallocOldp(0),
+          pendingReallocSz(0),
+          pendingReallocCallerIp(0),
+
+          hasPendingReallocarray(false),
+          pendingReallocarrayOldp(0),
+          pendingReallocarrayNmemb(0),
+          pendingReallocarrayElemsz(0),
+          pendingReallocarrayCallerIp(0),
+
+          hasPendingMmap(false),
+          pendingMmapLen(0),
+          pendingMmapCallerIp(0),
+
+          hasPendingMunmap(false),
+          pendingMunmapAddr(0),
+          pendingMunmapLen(0),
+          pendingMunmapCallerIp(0),
+
+          hasPendingMremap(false),
+          pendingMremapOldp(0),
+          pendingMremapOldsz(0),
+          pendingMremapNewsz(0),
+          pendingMremapCallerIp(0)
     {}
 };
 static TLS_KEY g_tls_key;
-
-
-/*static inline size_t NormalizeAllocSize(void* p, size_t requested) {
-    if (!p) return 0;
-
-    size_t bytes = requested;
-
-    if (bytes == 0) {
-        bytes = malloc_usable_size(p);   // glibc
-        if (bytes == 0) bytes = 1;       // fallback sentinel
-    }
-
-    return bytes;
-}
-
-static inline size_t NormalizeAllocSize(void* p, size_t requested) {
-    if (!p) return 0;
-
-    size_t usable = malloc_usable_size(p);   // glibc usable bytes
-    size_t bytes  = requested;
-
-    // Πάρε το μεγαλύτερο (requested vs usable)
-    if (usable > bytes) bytes = usable;
-
-    // Αν και τα δύο είναι 0 (σπάνιο), βάλε 1
-    if (bytes == 0) bytes = 1;
-
-    return bytes;
-}*/
-
-static inline size_t NormalizeAllocSize(void* p, size_t requested) {
-    if (!p) return 0;
-
-    // glibc usable size (real chunk capacity)
-    size_t usable = malloc_usable_size(p);
-
-    // Αν για κάποιο λόγο δεν παίξει, fallback
-    if (usable == 0) {
-        if (requested == 0) return 1;
-        return requested;
-    }
-
-    // Κράτα usable ώστε να μην βγάζεις false OOB λόγω rounding/alignment
-    return usable;
-}
-
-
 
 // Helper gia IMG name
 static inline void GetImgFromIp(ADDRINT ip, std::string &imgName, ADDRINT &imgOff)
@@ -382,7 +407,7 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
     return false;
 }
 
-static VOID ParseProcMaps()
+/*static VOID ParseProcMaps()
 {
     std::ifstream in("/proc/self/maps");
     if (!in.is_open()) {
@@ -503,7 +528,7 @@ static VOID ParseProcMaps()
         fflush(tracef);
     }
     PIN_ReleaseLock(&g_events_lock);
-}
+}*/
 
 static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
     BOOL hasHandler, const EXCEPTION_INFO* pExceptInfo, VOID* v)
@@ -1050,17 +1075,158 @@ static VOID HookDummySites(IMG img)
         }
     }
 }
+// ---- forward declarations for After* used by TLS wrappers ----
+static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip);
+static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip);
+static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip);
+static VOID AfterReallocarray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip);
+
+static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip);
+static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip);
+static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip);
 
 
 // ----------------- Optional glibc malloc/free hooks --------------
 // otan energopoihthei to knob use_libc_hooks, kanoume hook ta malloc/calloc/realloc/free
 
+static VOID BeforeMallocTLS(THREADID tid, size_t sz, ADDRINT caller_ip) {
+    //if (tc->hasPendingMalloc) { /* optional log anomaly */ }
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingMalloc = true;
+    tc->pendingMallocSize = sz;
+    tc->pendingMallocCallerIp = caller_ip;
+}
+
+static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingMalloc) return;
+    AfterMalloc(ret, tc->pendingMallocSize, tc->pendingMallocCallerIp);
+    tc->hasPendingMalloc = false;
+    tc->pendingMallocSize = 0;
+    tc->pendingMallocCallerIp = 0;
+}
+
+static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingCalloc = true;
+    tc->pendingCallocN = n;
+    tc->pendingCallocSz = sz;
+    tc->pendingCallocCallerIp = caller_ip;
+}
+
+static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingCalloc) return;
+    AfterCalloc(ret, tc->pendingCallocN, tc->pendingCallocSz, tc->pendingCallocCallerIp);
+    tc->hasPendingCalloc = false;
+    tc->pendingCallocN = tc->pendingCallocSz = 0;
+    tc->pendingCallocCallerIp = 0;
+}
+
+static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingRealloc = true;
+    tc->pendingReallocOldp = oldp;
+    tc->pendingReallocSz = sz;
+    tc->pendingReallocCallerIp = caller_ip;
+}
+
+static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingRealloc) return;
+    AfterRealloc(ret, tc->pendingReallocOldp, tc->pendingReallocSz, tc->pendingReallocCallerIp);
+    tc->hasPendingRealloc = false;
+    tc->pendingReallocOldp = 0;
+    tc->pendingReallocSz = 0;
+    tc->pendingReallocCallerIp = 0;
+}
+
+static VOID BeforeReallocarrayTLS(THREADID tid, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingReallocarray = true;
+    tc->pendingReallocarrayOldp = oldp;
+    tc->pendingReallocarrayNmemb = nmemb;
+    tc->pendingReallocarrayElemsz = elemsz;
+    tc->pendingReallocarrayCallerIp = caller_ip;
+}
+
+static VOID AfterReallocarrayTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingReallocarray) return;
+    AfterReallocarray(ret,
+        tc->pendingReallocarrayOldp,
+        tc->pendingReallocarrayNmemb,
+        tc->pendingReallocarrayElemsz,
+        tc->pendingReallocarrayCallerIp);
+    tc->hasPendingReallocarray = false;
+    tc->pendingReallocarrayOldp = 0;
+    tc->pendingReallocarrayNmemb = tc->pendingReallocarrayElemsz = 0;
+    tc->pendingReallocarrayCallerIp = 0;
+}
+
+static VOID BeforeMmapTLS(THREADID tid, size_t length, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingMmap = true;
+    tc->pendingMmapLen = length;
+    tc->pendingMmapCallerIp = caller_ip;
+}
+static VOID AfterMmapTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingMmap) return;
+    AfterMmap(ret, tc->pendingMmapLen, tc->pendingMmapCallerIp);
+    tc->hasPendingMmap = false;
+    tc->pendingMmapLen = 0;
+    tc->pendingMmapCallerIp = 0;
+}
+
+static VOID BeforeMunmapTLS(THREADID tid, ADDRINT addr, size_t length, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingMunmap = true;
+    tc->pendingMunmapAddr = addr;
+    tc->pendingMunmapLen = length;
+    tc->pendingMunmapCallerIp = caller_ip;
+}
+static VOID AfterMunmapTLS(THREADID tid, INT32 rc) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingMunmap) return;
+    AfterMunmap(rc, tc->pendingMunmapAddr, tc->pendingMunmapLen, tc->pendingMunmapCallerIp);
+    tc->hasPendingMunmap = false;
+    tc->pendingMunmapAddr = 0;
+    tc->pendingMunmapLen = 0;
+    tc->pendingMunmapCallerIp = 0;
+}
+
+static VOID BeforeMremapTLS(THREADID tid, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+    tc->hasPendingMremap = true;
+    tc->pendingMremapOldp = oldp;
+    tc->pendingMremapOldsz = oldsz;
+    tc->pendingMremapNewsz = newsz;
+    tc->pendingMremapCallerIp = caller_ip;
+}
+static VOID AfterMremapTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc || !tc->hasPendingMremap) return;
+    AfterMremap(ret, tc->pendingMremapOldp, tc->pendingMremapOldsz, tc->pendingMremapNewsz, tc->pendingMremapCallerIp);
+    tc->hasPendingMremap = false;
+    tc->pendingMremapOldp = 0;
+    tc->pendingMremapOldsz = tc->pendingMremapNewsz = 0;
+    tc->pendingMremapCallerIp = 0;
+}
+
 static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (!ret ) return;      //|| sz == 0
     THREADID tid = PIN_ThreadId();
     //real size
-    size_t bytes = NormalizeAllocSize((void*)ret, sz);
-
+    //size_t bytes = NormalizeAllocSize((void*)ret, sz);
+    size_t bytes = sz;   // requested only
     //debug msg
     PIN_GetLock(&g_events_lock, tid);
     if (logf) {
@@ -1069,10 +1235,10 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
         /*fprintf(logf, "[MALLOC HIT] ret=%p sz=%zu caller_pc=%p img=%s+0x%lx\n",
                 (void*)ret, sz, (void*)caller_ip,
                 imgName.c_str(), (unsigned long)imgOff);*/
-                size_t usable_dbg = malloc_usable_size((void*)ret);
-                fprintf(logf, "[MALLOC HIT] ret=%p req=%zu usable=%zu caller_pc=%p img=%s+0x%lx\n",
-                        (void*)ret, sz, usable_dbg, (void*)caller_ip,
-                        imgName.c_str(), (unsigned long)imgOff);
+                //size_t usable_dbg = malloc_usable_size((void*)ret);
+                fprintf(logf, "[MALLOC HIT] ret=%p req=%zu caller_pc=%p img=%s+0x%lx\n",
+                    (void*)ret, sz, (void*)caller_ip,
+                    imgName.c_str(), (unsigned long)imgOff);
         fflush(logf);
     }
     PIN_ReleaseLock(&g_events_lock);
@@ -1142,7 +1308,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     } else {
         bytes = 0; // calloc(0, x) ή calloc(x,0) -> bytes 0 αλλά ptr μπορεί να είναι non-null
     }
-    bytes = NormalizeAllocSize((void*)ret, bytes);
+    //bytes = NormalizeAllocSize((void*)ret, bytes);
     THREADID tid = PIN_ThreadId();
 
     // caller source location
@@ -1260,7 +1426,8 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
 
     // new allocation
     if (ret) {
-        size_t bytes = NormalizeAllocSize((void*)ret, sz);
+        //size_t bytes = NormalizeAllocSize((void*)ret, sz);
+        size_t bytes = sz;   // requested only
         PIN_GetLock(&g_regions_lock, tid);
         Region r; r.start = ret; r.size = bytes; r.tag = "heap:realloc";
         g_regions[ret] = r;
@@ -1340,11 +1507,14 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
 static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     //claude
     // DEBUG: Log EVERY free attempt
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);   // client-lock εδώ (χωρίς events_lock)
     PIN_GetLock(&g_events_lock, PIN_ThreadId());
     if (logf) {
         //fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p\n", (void*)p, (void*)caller_ip);
-        std::string imgName; ADDRINT imgOff=0;
-        GetImgFromIp(caller_ip, imgName, imgOff);
+        //std::string imgName; ADDRINT imgOff=0;
+       // GetImgFromIp(caller_ip, imgName, imgOff);
         fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p img=%s+0x%lx\n",
              (void*)p, (void*)caller_ip, imgName.c_str(), (unsigned long)imgOff);
         fflush(logf);
@@ -1363,9 +1533,9 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
 
     // ---- Image name + offset (ΝΕΟ) ----
-    std::string imgName;
-    ADDRINT imgOff = 0;
-    GetImgFromIp(caller_ip, imgName, imgOff);
+   // std::string imgName;
+    //ADDRINT imgOff = 0;
+    //GetImgFromIp(caller_ip, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     bool known_exact = false;
@@ -1941,7 +2111,7 @@ static VOID HookLibcAllocators(IMG img) {
         }
     }*/
 
-    auto HookAfterMallocLike = [&](const char* sym) {
+    /*auto HookAfterMallocLike = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -1953,6 +2123,31 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // size
             IARG_RETURN_IP,
             IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };*/
+
+    auto HookMallocLike = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+    
+        // BEFORE: store size + caller
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeMallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // size
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        // AFTER: use ret only
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+    
         RTN_Close(r);
         LogHook(sym);
         return true;
@@ -1974,7 +2169,7 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
     
-    auto HookAfterCallocLike = [&](const char* sym) {
+    /*auto HookAfterCallocLike = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -1990,9 +2185,33 @@ static VOID HookLibcAllocators(IMG img) {
         RTN_Close(r);
         LogHook(sym);
         return true;
+    };*/
+
+    auto HookCallocLikeTLS = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+    
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeCallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // n
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // size
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+    
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
     };
     
-    auto HookAfterReallocLike = [&](const char* sym) {
+    /*auto HookAfterReallocLike = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -2008,9 +2227,33 @@ static VOID HookLibcAllocators(IMG img) {
         RTN_Close(r);
         LogHook(sym);
         return true;
+    };*/
+
+    auto HookReallocLikeTLS = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+    
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeReallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // oldp
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // size
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+    
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
     };
     
-    auto HookAfterReallocarrayLike = [&](const char* sym) {
+    /*auto HookAfterReallocarrayLike = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -2024,6 +2267,31 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_FUNCARG_ENTRYPOINT_VALUE, 2,  // elemsz
             IARG_RETURN_IP,
             IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };*/
+
+    auto HookReallocarrayLikeTLS = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+    
+        RTN_Open(r);
+    
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeReallocarrayTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // oldp
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // nmemb
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,   // elemsz
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarrayTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+    
         RTN_Close(r);
         LogHook(sym);
         return true;
@@ -2155,7 +2423,8 @@ for (const char* sym : {
     "malloc", "__libc_malloc", "__GI___libc_malloc",
     "__GI_malloc"
 }) {
-    HookAfterMallocLike(sym);
+    //HookAfterMallocLike(sym);
+    HookMallocLike(sym);
 }
 
 // free aliases
@@ -2172,7 +2441,7 @@ for (const char* sym : {
     "calloc", "__libc_calloc", "__GI___libc_calloc",
     "__GI_calloc"
 }) {
-    HookAfterCallocLike(sym);
+    HookCallocLikeTLS(sym);
 }
 
 // realloc aliases
@@ -2180,14 +2449,14 @@ for (const char* sym : {
     "realloc", "__libc_realloc", "__GI___libc_realloc",
     "__GI_realloc"
 }) {
-    HookAfterReallocLike(sym);
+    HookReallocLikeTLS(sym);
 }
 
 // reallocarray aliases
 for (const char* sym : {
     "reallocarray", "__libc_reallocarray", "__GI___libc_reallocarray"
 }) {
-    HookAfterReallocarrayLike(sym);
+    HookReallocarrayLikeTLS(sym);
 }
 
 // aligned_alloc / memalign / valloc / pvalloc
@@ -2210,30 +2479,20 @@ for (const char* sym : {"posix_memalign", "__GI_posix_memalign"}) {
 }
 
 // ---------------- jemalloc explicit symbols ----------------
-
-// je_malloc
 for (const char* sym : { "je_malloc" }) {
-    HookAfterMallocLike(sym);
+    HookMallocLike(sym);
 }
-
-// je_free
 for (const char* sym : { "je_free" }) {
     HookBeforeFreeLike(sym);
 }
-
-// je_calloc
 for (const char* sym : { "je_calloc" }) {
-    HookAfterCallocLike(sym);
+    HookCallocLikeTLS(sym);
 }
-
-// je_realloc
 for (const char* sym : { "je_realloc" }) {
-    HookAfterReallocLike(sym);
+    HookReallocLikeTLS(sym);
 }
-
-// je_reallocarray (αν υπάρχει)
 for (const char* sym : { "je_reallocarray" }) {
-    HookAfterReallocarrayLike(sym);
+    HookReallocarrayLikeTLS(sym);
 }
 
     // posix_memalign returns int, writes pointer to *memptr
@@ -2263,11 +2522,16 @@ for (const char* sym : { "je_reallocarray" }) {
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
             // mmap(addr, length, prot, flags, fd, offset) -> ret
-            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMmap),
-                IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // length
-                IARG_RETURN_IP,
-                IARG_END);
+            RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeMmapTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // length
+            IARG_RETURN_IP,
+            IARG_END);
+        
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMmapTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
             RTN_Close(r);
             LogHook(sym);
         }
@@ -2280,12 +2544,17 @@ for (const char* sym : { "je_reallocarray" }) {
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
             // munmap(addr, length) -> int rc
-            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMunmap),
-                IARG_FUNCRET_EXITPOINT_VALUE,          // rc
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // addr
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // length
-                IARG_RETURN_IP,
-                IARG_END);
+            RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeMunmapTLS),
+    IARG_THREAD_ID,
+    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // addr
+    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // length
+    IARG_RETURN_IP,
+    IARG_END);
+
+RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMunmapTLS),
+    IARG_THREAD_ID,
+    IARG_FUNCRET_EXITPOINT_VALUE,       // rc
+    IARG_END);
             RTN_Close(r);
             LogHook(sym);
         }
@@ -2298,13 +2567,18 @@ for (const char* sym : { "je_reallocarray" }) {
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
             // mremap(old_address, old_size, new_size, flags, ...) -> ret
-            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMremap),
-                IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // oldp
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // oldsz
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 2,      // newsz
-                IARG_RETURN_IP,
-                IARG_END);
+            RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeMremapTLS),
+    IARG_THREAD_ID,
+    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // oldp
+    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // oldsz
+    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,   // newsz
+    IARG_RETURN_IP,
+    IARG_END);
+
+RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMremapTLS),
+    IARG_THREAD_ID,
+    IARG_FUNCRET_EXITPOINT_VALUE,
+    IARG_END);
             RTN_Close(r);
             LogHook(sym);
         }
@@ -2430,7 +2704,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Parse pre-existing allocations (ΜΕΤΑ τα αρχεία)
-    ParseProcMaps();
+    //ParseProcMaps();
 
     // Callbacks
     IMG_AddInstrumentFunction(ImageLoad, 0);
