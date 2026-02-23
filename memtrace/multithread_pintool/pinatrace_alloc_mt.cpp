@@ -131,10 +131,20 @@ struct ThreadCtx {
         size_t pendingMallocSize;
         ADDRINT pendingMallocCallerIp;
     
-        bool   hasPendingCalloc;
+        /*bool   hasPendingCalloc;
         size_t pendingCallocN;
         size_t pendingCallocSz;
-        ADDRINT pendingCallocCallerIp;
+        ADDRINT pendingCallocCallerIp;*/
+
+        struct PendingCalloc {
+            size_t  n;
+            size_t  sz;
+            ADDRINT callerIp;
+        };
+        
+        static constexpr int kCallocStackMax = 64;
+        PendingCalloc pendingCallocStack[kCallocStackMax];
+        int pendingCallocTop; // 0..kCallocStackMax
     
         bool   hasPendingRealloc;
         ADDRINT pendingReallocOldp;
@@ -177,10 +187,12 @@ struct ThreadCtx {
           pendingMallocSize(0),
           pendingMallocCallerIp(0),
 
-          hasPendingCalloc(false),
+          /*hasPendingCalloc(false),
           pendingCallocN(0),
           pendingCallocSz(0),
-          pendingCallocCallerIp(0),
+          pendingCallocCallerIp(0),*/
+
+          pendingCallocTop(0),
 
           hasPendingRealloc(false),
           pendingReallocOldp(0),
@@ -1098,16 +1110,39 @@ static VOID BeforeMallocTLS(THREADID tid, size_t sz, ADDRINT caller_ip) {
     tc->pendingMallocCallerIp = caller_ip;
 }
 
-static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
+/*static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = CTX(tid);
     if (!tc || !tc->hasPendingMalloc) return;
     AfterMalloc(ret, tc->pendingMallocSize, tc->pendingMallocCallerIp);
     tc->hasPendingMalloc = false;
     tc->pendingMallocSize = 0;
     tc->pendingMallocCallerIp = 0;
+}*/
+
+//debug aftermalloctlc
+static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+
+    if (!tc->hasPendingMalloc) {
+        fprintf(tracef, "[RAW AFTER MALLOC] T%u ret=%p NO-PENDING\n",
+                (unsigned)tid, (void*)ret);
+        return;
+    }
+
+    fprintf(tracef, "[RAW AFTER MALLOC] T%u ret=%p size=%zu callerIp=%p\n",
+            (unsigned)tid, (void*)ret,
+            (size_t)tc->pendingMallocSize,
+            (void*)tc->pendingMallocCallerIp);
+
+    AfterMalloc(ret, tc->pendingMallocSize, tc->pendingMallocCallerIp);
+
+    tc->hasPendingMalloc = false;
+    tc->pendingMallocSize = 0;
+    tc->pendingMallocCallerIp = 0;
 }
 
-static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
+/*static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
     ThreadCtx* tc = CTX(tid);
     if (!tc) return;
     PIN_GetLock(&g_events_lock, tid);
@@ -1121,9 +1156,36 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
     tc->pendingCallocN = n;
     tc->pendingCallocSz = sz;
     tc->pendingCallocCallerIp = caller_ip;
+}*/
+
+static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+
+    if (tc->pendingCallocTop < ThreadCtx::kCallocStackMax) {
+        tc->pendingCallocStack[tc->pendingCallocTop++] = {n, sz, caller_ip};
+    } else {
+        // overflow του stack: γράψε anomaly και ΜΗΝ κάνεις push
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[ANOMALY] calloc pending stack overflow T%u n=%zu sz=%zu ip=%p\n",
+                    (unsigned)tid, n, sz, (void*)caller_ip);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        // δεν κάνουμε return; απλά δεν κρατάμε pending record
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[DBG] BeforeCallocTLS T%u n=%zu sz=%zu ip=%p depth=%d\n",
+                (unsigned)tid, n, sz, (void*)caller_ip, tc->pendingCallocTop);
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = CTX(tid);
     if (!tc) return;
 
@@ -1140,6 +1202,62 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     tc->hasPendingCalloc = false;
     tc->pendingCallocN = tc->pendingCallocSz = 0;
     tc->pendingCallocCallerIp = 0;
+}*/
+
+/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+    fprintf(tracef, "[RAW] AfterCallocTLS  T%u ret=%p depth=%d\n",
+        (unsigned)tid, (void*)ret, tc->pendingCallocTop);
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[DBG] AfterCallocTLS  T%u ret=%p depth=%d\n",
+                (unsigned)tid, (void*)ret, tc->pendingCallocTop);
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    if (tc->pendingCallocTop <= 0) {
+        // Missing before (ή mismatch λόγω instrumentation gaps)
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[ANOMALY] AfterCallocTLS with empty stack T%u ret=%p\n",
+                    (unsigned)tid, (void*)ret);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    ThreadCtx::PendingCalloc p = tc->pendingCallocStack[--tc->pendingCallocTop];
+    AfterCalloc(ret, p.n, p.sz, p.callerIp);
+}*/
+
+//debug aftercalloctlc
+static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+
+    if (tc->pendingCallocTop <= 0) {
+        fprintf(tracef, "[RAW AFTER CALLOC] T%u ret=%p EMPTY\n",
+                (unsigned)tid, (void*)ret);
+        return;
+    }
+
+    const ThreadCtx::PendingCalloc& top =
+        tc->pendingCallocStack[tc->pendingCallocTop - 1];
+
+    size_t total = (size_t)top.n * (size_t)top.sz;
+
+    fprintf(tracef, "[RAW AFTER CALLOC] T%u ret=%p n=%zu sz=%zu total=%zu depth=%d callerIp=%p\n",
+            (unsigned)tid, (void*)ret,
+            (size_t)top.n, (size_t)top.sz, total,
+            tc->pendingCallocTop,
+            (void*)top.callerIp);
+
+    ThreadCtx::PendingCalloc p = tc->pendingCallocStack[--tc->pendingCallocTop];
+    AfterCalloc(ret, p.n, p.sz, p.callerIp);
 }
 
 static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
@@ -2655,6 +2773,7 @@ static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
 static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = CTX(tid);
     if (tc) {
+        tc->pendingCallocTop = 0;
         // den iparxei pleon per-thread file
         delete tc;
         PIN_SetThreadData(g_tls_key, nullptr, tid);
