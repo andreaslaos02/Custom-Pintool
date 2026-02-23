@@ -1110,6 +1110,13 @@ static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
 static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
     ThreadCtx* tc = CTX(tid);
     if (!tc) return;
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[DBG] BeforeCallocTLS T%u n=%zu sz=%zu ip=%p\n",
+                (unsigned)tid, n, sz, (void*)caller_ip);
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
     tc->hasPendingCalloc = true;
     tc->pendingCallocN = n;
     tc->pendingCallocSz = sz;
@@ -1118,6 +1125,16 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
 
 static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = CTX(tid);
+    if (!tc) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[DBG] AfterCallocTLS  T%u ret=%p pending=%d\n",
+                (unsigned)tid, (void*)ret, (int)tc->hasPendingCalloc);
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
     if (!tc || !tc->hasPendingCalloc) return;
     AfterCalloc(ret, tc->pendingCallocN, tc->pendingCallocSz, tc->pendingCallocCallerIp);
     tc->hasPendingCalloc = false;

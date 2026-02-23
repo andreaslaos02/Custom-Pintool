@@ -187,7 +187,7 @@ cd ~/repos/pintools/memtrace/multithread_pintool
 rm -f pinatrace.out pinatrace.events pintool.log
 
 multi thread:
-$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1   -- memcached -p 11211 -u $USER
+$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1   -- ~/memcached-1.6.14/memcached -p 11211 -u $USER
 
 single thread:
 taskset -c 0 "$PIN_ROOT/pin"   -t "$PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so"   -use_libc_hooks 1   -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u "$USER"
