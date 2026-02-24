@@ -1,168 +1,228 @@
-alloc start=0x559b1d2ce2a0 size=48 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:4686 img=/home/alaos002/memcached-1.6.14/memcached+0x1499e pc=0x559afef7c99e
-alloc start=0x559b1d2ce2e0 size=40 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/storage.c:1116 img=/home/alaos002/memcached-1.6.14/memcached+0x43552 pc=0x559afefab552
-alloc start=0x559b1d2ce310 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fd54cd8f8e7
-alloc start=0x559b1d2ce5f0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fd54cda0644
-alloc start=0x559b1d2ce7a0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fd54cd94604
-free  start=0x559b1d2ce310 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:5863 img=/home/alaos002/memcached-1.6.14/memcached+0x16953 pc=0x559afef7e953
-alloc start=0x7fd54b44a000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd54af93000 size=528384 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd54af93010 size=524288 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/assoc.c:59 img=/home/alaos002/memcached-1.6.14/memcached+0x2540b pc=0x559afef8d40b
-alloc start=0x7fd54aea0000 size=167936 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd54aea0010 size=163840 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:1042 img=/home/alaos002/memcached-1.6.14/memcached+0x28b16 pc=0x559afef90b16
-alloc start=0x559b1d2d7360 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fd54cd8f8e7
-alloc start=0x559b1d2d7640 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fd54cda0644
-alloc start=0x559b1d2d77f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fd54cd94604
-free  start=0x559b1d2d7360 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x559afef8e91e
-alloc start=0x559b1d2d7810 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fd54cdace71
-alloc start=0x559b1d2d7920 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-alloc start=0x559b1d2d7940 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x559afef8e9f3
-alloc start=0x559b1d2d79f0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d7a70 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d7af0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d7b10 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fd54cd8f8e7
-alloc start=0x559b1d2d7df0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fd54cda0644
-alloc start=0x559b1d2d7fa0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fd54cd94604
-free  start=0x559b1d2d7b10 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x559afef8e91e
-alloc start=0x559b1d2d7fc0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fd54cdace71
-alloc start=0x559b1d2d80d0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-alloc start=0x559b1d2d80f0 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x559afef8e9f3
-alloc start=0x559b1d2d81a0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d8220 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d82a0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d82c0 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fd54cd8f8e7
-alloc start=0x559b1d2d85a0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fd54cda0644
-alloc start=0x559b1d2d8750 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fd54cd94604
-free  start=0x559b1d2d82c0 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x559afef8e91e
-alloc start=0x559b1d2d8770 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fd54cdace71
-alloc start=0x559b1d2d8880 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-alloc start=0x559b1d2d88a0 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x559afef8e9f3
-alloc start=0x559b1d2d8950 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d89d0 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d8a50 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d8a70 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fd54cd8f8e7
-alloc start=0x559b1d2d8d50 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fd54cda0644
-alloc start=0x559b1d2d8f00 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fd54cd94604
-free  start=0x559b1d2d8a70 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x559afef8e91e
-alloc start=0x559b1d2d8f20 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fd54cdace71
-alloc start=0x559b1d2d9030 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-alloc start=0x559b1d2d9050 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x559afef8e9f3
-alloc start=0x559b1d2d9100 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d9180 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x559b1d2d9200 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fd54ca9758f
-alloc start=0x7fd54a512000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd5499b9000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd541998000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fd54ca90c82
-free  start=0x7fd541998000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1dcd pc=0x7fd54ca90dcd
-alloc start=0x7fd5437ff000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-free  start=0x7fd548000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fd54ca90cc5
-alloc start=0x7fd539682000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fd54ca90c82
-free  start=0x7fd539682000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1dcd pc=0x7fd54ca90dcd
-alloc start=0x7fd548de3000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-free  start=0x7fd540000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fd54ca90cc5
-alloc start=0x7fd544000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd534000000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fd54ca90c82
-alloc start=0x7fd53c000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd53c010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x559afef8bbc9
-alloc start=0x7fd544010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x559afef8bbc9
-free  start=0x7fd538000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fd54ca90cc5
-alloc start=0x7fd538000000 size=67108864 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c3d pc=0x7fd54ca90c3d
-alloc start=0x7fd548a61000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd548a40000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd534000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd548a61010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd548a40010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd534010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x559afef8bbc9
-alloc start=0x7fd538000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd538010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x559afef8bbc9
-alloc start=0x7fd5489a7000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd5489a7010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd548965000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x7fd548965010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x7fd548142000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd542df4000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd54229b000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd540e81000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fd54ca84707
-alloc start=0x7fd52c000000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fd54ca90c82
-free  start=0x7fd530000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fd54ca90cc5
-alloc start=0x7fd541bbc000 size=139264 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fd54ca914b8
-alloc start=0x559b1d2d9b20 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1f07e pc=0x7fd54cd9507e
-alloc start=0x7fd541bbc010 size=137272 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1578 img=/home/alaos002/memcached-1.6.14/memcached+0x24964 pc=0x559afef8c964
-alloc start=0x7fd52c000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x559afef922ca
-alloc start=0x559b1d2d9b70 size=76 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10ae5a pc=0x7fd54caf9e5a
-alloc start=0x559b1d2d9bd0 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10b85a pc=0x7fd54cafa85a
-alloc start=0x559b1d2d9c20 size=472 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7f64e pc=0x7fd54ca6e64e
-alloc start=0x559b1d2d9e00 size=120 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x80123 pc=0x7fd54ca6f123
-alloc start=0x559b1d2d9e80 size=4096 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7fd54ca6dba4
-free  start=0x559b1d2d9e00 size=120 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10a03e pc=0x7fd54caf903e
-free  start=0x559b1d2d9e80 size=4096 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x8dc79 pc=0x7fd54ca7cc79
-free  start=0x559b1d2d9c20 size=472 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7ed27 pc=0x7fd54ca6dd27
-alloc start=0x559b1d2d9e80 size=1560 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x143df7 pc=0x7fd54cb32df7
-alloc start=0x559b1d2da690 size=1 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:673 img=/home/alaos002/memcached-1.6.14/memcached+0x9559 pc=0x559afef71559
-alloc start=0x559b1d2da6b0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fd54cdace71
-alloc start=0x559b1d2da7c0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-alloc start=0x559b1d2da9d0 size=1 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:673 img=/home/alaos002/memcached-1.6.14/memcached+0x9559 pc=0x559afef71559
-alloc start=0x559b1d2da9f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fd54cd94387
-free  start=0x559b1d2d9bd0 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10cfb0 pc=0x7fd54cafbfb0
-free  start=0x559b1d2d9b70 size=76 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10cfb0 pc=0x7fd54cafbfb0
-alloc start=0x559b1d2daa10 size=1024 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7fd54ca6dba4
-alloc start=0x559b1d2d8a70 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x559afef920ab
-alloc start=0x559b1d2d82c0 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x559afef920ab
-alloc start=0x559b1d2d7b10 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x559afef920ab
-alloc start=0x559b1d2d7360 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x559afef920ab
-free  start=0x7fd53c010c50 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fd54cd95e68
-free  start=0x7fd538010c50 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fd54cd95e68
-free  start=0x7fd544010c50 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fd54cd95e68
-free  start=0x7fd534010c50 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fd54cd95e68
-free  start=0x7fd52c012420 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/slab_automove.c:58 img=/home/alaos002/memcached-1.6.14/memcached+0x2f64a pc=0x559afef9764a
-free  start=0x7fd52c010c00 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/slab_automove.c:59 img=/home/alaos002/memcached-1.6.14/memcached+0x2f656 pc=0x559afef97656
-free  start=0x7fd541bbc010 size=137272 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1678 img=/home/alaos002/memcached-1.6.14/memcached+0x24f02 pc=0x559afef8cf02
-free  start=0x7fd541bbc000 size=139264 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa549a pc=0x7fd54ca9449a
-ANOMALY free_interior ptr=0x7fd52c0008e0 inside_start=0x7fd52c000000 inside_size=134217728 inside_tag=mmap off=2272 site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fd54ca945e3
-free  start=0x559b1d2d96a0 tag=UNKNOWN site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fd5606c0ac7
-free  start=0x7fd548142000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fd54ca80458
-free  start=0x559b1d2d85c0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fd54cd9f06c
-free  start=0x559b1d2d7660 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fd54cd9f06c
-free  start=0x559b1d2d8d70 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fd54cd9f06c
-free  start=0x559b1d2d7e10 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fd54cd9f06c
-free  start=0x559b1d2d8d50 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fd54cd96731
-free  start=0x559b1d2d85a0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fd54cd96731
-free  start=0x559b1d2d7640 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fd54cd96731
-free  start=0x559b1d2d7df0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fd54cd96731
-free  start=0x559b1d2d8f00 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fd54cd96801
-free  start=0x559b1d2d77f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fd54cd96801
-free  start=0x559b1d2d7fa0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fd54cd96801
-free  start=0x559b1d2d8750 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fd54cd96801
-free  start=0x559b1d2d9030 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2d8880 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2d80d0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2d7920 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2d7810 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fd54cd90153
-free  start=0x559b1d2d7fc0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fd54cd90153
-free  start=0x559b1d2d8f20 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fd54cd90153
-free  start=0x559b1d2d8770 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fd54cd90153
-free  start=0x559b1d2d73a0 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x559afef8eca6
-free  start=0x559b1d2d7b50 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x559afef8eca6
-free  start=0x559b1d2d8300 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x559afef8eca6
-free  start=0x559b1d2d8ab0 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x559afef8eca6
-free  start=0x7fd53c0008e0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fd54ca945e3
-free  start=0x7fd5440008e0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fd54ca945e3
-ANOMALY free_interior ptr=0x7fd5340008e0 inside_start=0x7fd534000000 inside_size=134217728 inside_tag=mmap off=2272 site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fd54ca945e3
-ANOMALY free_interior ptr=0x7fd5380008e0 inside_start=0x7fd538000000 inside_size=67108864 inside_tag=mmap off=2272 site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fd54ca945e3
-free  start=0x559b1d2d97c0 tag=UNKNOWN site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fd5606c0ac7
-free  start=0x7fd542df4000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fd54ca80458
-free  start=0x559b1d2d98e0 tag=UNKNOWN site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fd5606c0ac7
-free  start=0x7fd54229b000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fd54ca80458
-free  start=0x559b1d2d9a00 tag=UNKNOWN site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fd5606c0ac7
-free  start=0x7fd540e81000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fd54ca80458
-free  start=0x559b1d2ce7c0 tag=UNKNOWN site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fd5606c0ac7
-free  start=0x7fd54b44a000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fd54ca80458
-free  start=0x559b1d2ce610 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fd54cd9f06c
-free  start=0x559b1d2ce5f0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fd54cd96731
-free  start=0x559b1d2d9b20 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x207f5 pc=0x7fd54cd967f5
-free  start=0x559b1d2ce7a0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fd54cd96801
-free  start=0x559b1d2da7c0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2da9f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fd54cd9013e
-free  start=0x559b1d2da6b0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fd54cd90153
-free  start=0x559b1d2ce350 tag=UNKNOWN site=/home/alaos002/memcached-1.6.14/memcached.c:6167 img=/home/alaos002/memcached-1.6.14/memcached+0x17310 pc=0x559afef7f310
-free  start=0x559b1d2ce2a0 size=48 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:6169 img=/home/alaos002/memcached-1.6.14/memcached+0x1731f pc=0x559afef7f31f
+alloc start=0x7fb367b86000 size=8192 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7fb37b267471
+alloc start=0x7fb367a25000 size=62884 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0xd685 pc=0x7fb37b267685
+alloc start=0x7fb3678bb000 size=342344 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x8f1c pc=0x7fb37b262f1c
+alloc start=0x7fb3678c7000 size=204800 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb3678f9000 size=77824 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb36790d000 size=8192 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb36752a000 size=2264656 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x8f1c pc=0x7fb37b262f1c
+alloc start=0x7fb367552000 size=1658880 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb3676e7000 size=360448 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb367740000 size=24576 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7fb37b263099
+alloc start=0x7fb367746000 size=52816 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x9da5 pc=0x7fb37b263da5
+alloc start=0x7fb3674ac000 size=12288 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7fb37b267471
+free  start=0x7fb367a25000 size=62884 tag=mmap site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x17300 pc=0x7fb37b271300
+alloc start=0x561a8dd7b2a0 size=48 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:4686 img=/home/alaos002/memcached-1.6.14/memcached+0x1499e pc=0x561a51b6999e
+alloc start=0x561a8dd7b2e0 size=40 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/storage.c:1116 img=/home/alaos002/memcached-1.6.14/memcached+0x43552 pc=0x561a51b98552
+alloc start=0x561a8dd7b310 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fb3678d48e7
+alloc start=0x561a8dd7b350 size=664 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22dae pc=0x7fb3678dddae
+alloc start=0x561a8dd7b5f0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fb3678e5644
+alloc start=0x561a8dd7b610 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a662 pc=0x7fb3678e5662
+alloc start=0x561a8dd7b7a0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fb3678d9604
+free  start=0x561a8dd7b310 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:5863 img=/home/alaos002/memcached-1.6.14/memcached+0x16953 pc=0x561a51b6b953
+alloc start=0x7fb365f4d000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd7b7c0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x561a8dd7b8e0 size=8192 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:484 img=/home/alaos002/memcached-1.6.14/memcached+0x8ec3 pc=0x561a51b5dec3
+alloc start=0x7fb365ac6000 size=528384 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb365ac6010 size=524288 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/assoc.c:59 img=/home/alaos002/memcached-1.6.14/memcached+0x2540b pc=0x561a51b7a40b
+alloc start=0x7fb3659f5000 size=167936 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb3659f5010 size=163840 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:1042 img=/home/alaos002/memcached-1.6.14/memcached+0x28b16 pc=0x561a51b7db16
+alloc start=0x561a8dd7d8f0 size=27232 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:1051 img=/home/alaos002/memcached-1.6.14/memcached+0x28b99 pc=0x561a51b7db99
+alloc start=0x561a8dd84360 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fb3678d48e7
+alloc start=0x561a8dd843a0 size=664 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22dae pc=0x7fb3678dddae
+alloc start=0x561a8dd84640 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fb3678e5644
+alloc start=0x561a8dd84660 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a662 pc=0x7fb3678e5662
+alloc start=0x561a8dd847f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fb3678d9604
+free  start=0x561a8dd84360 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x561a51b7b91e
+alloc start=0x561a8dd84810 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fb3678f1e71
+alloc start=0x561a8dd84920 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+alloc start=0x561a8dd84940 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x561a51b7b9f3
+alloc start=0x561a8dd84990 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd849f0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd84a10 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd84a70 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd84a90 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd84af0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd84b10 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fb3678d48e7
+alloc start=0x561a8dd84b50 size=664 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22dae pc=0x7fb3678dddae
+alloc start=0x561a8dd84df0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fb3678e5644
+alloc start=0x561a8dd84e10 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a662 pc=0x7fb3678e5662
+alloc start=0x561a8dd84fa0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fb3678d9604
+free  start=0x561a8dd84b10 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x561a51b7b91e
+alloc start=0x561a8dd84fc0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fb3678f1e71
+alloc start=0x561a8dd850d0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+alloc start=0x561a8dd850f0 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x561a51b7b9f3
+alloc start=0x561a8dd85140 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd851a0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd851c0 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd85220 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd85240 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd852a0 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd852c0 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fb3678d48e7
+alloc start=0x561a8dd85300 size=664 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22dae pc=0x7fb3678dddae
+alloc start=0x561a8dd855a0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fb3678e5644
+alloc start=0x561a8dd855c0 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a662 pc=0x7fb3678e5662
+alloc start=0x561a8dd85750 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fb3678d9604
+free  start=0x561a8dd852c0 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x561a51b7b91e
+alloc start=0x561a8dd85770 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fb3678f1e71
+alloc start=0x561a8dd85880 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+alloc start=0x561a8dd858a0 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x561a51b7b9f3
+alloc start=0x561a8dd858f0 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd85950 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd85970 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd859d0 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd859f0 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd85a50 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd85a70 size=56 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x198e7 pc=0x7fb3678d48e7
+alloc start=0x561a8dd85ab0 size=664 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22dae pc=0x7fb3678dddae
+alloc start=0x561a8dd85d50 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a644 pc=0x7fb3678e5644
+alloc start=0x561a8dd85d70 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2a662 pc=0x7fb3678e5662
+alloc start=0x561a8dd85f00 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e604 pc=0x7fb3678d9604
+free  start=0x561a8dd85a70 size=56 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:414 img=/home/alaos002/memcached-1.6.14/memcached+0x2691e pc=0x561a51b7b91e
+alloc start=0x561a8dd85f20 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fb3678f1e71
+alloc start=0x561a8dd86030 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+alloc start=0x561a8dd86050 size=64 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/thread.c:434 img=/home/alaos002/memcached-1.6.14/memcached+0x269f3 pc=0x561a51b7b9f3
+alloc start=0x561a8dd860a0 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd86100 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd86120 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd86180 size=5 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x561a8dd861a0 size=88 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/cache.c:19 img=/home/alaos002/memcached-1.6.14/memcached+0x29e5d pc=0x561a51b7ee5d
+alloc start=0x561a8dd86200 size=3 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa858f pc=0x7fb3675d258f
+alloc start=0x7fb36504e000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd86220 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb3644bb000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd86340 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb35c490000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fb3675cbc82
+alloc start=0x7fb35b978000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x7fb35396f000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fb3675cbc82
+free  start=0x7fb35c490000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1dcd pc=0x7fb3675cbdcd
+free  start=0x7fb35396f000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1dcd pc=0x7fb3675cbdcd
+alloc start=0x561a8dd86460 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+free  start=0x7fb364000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fb3675cbcc5
+free  start=0x7fb358000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fb3675cbcc5
+alloc start=0x7fb35f7f5000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x7fb360000b70 size=104 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/logger.c:824 img=/home/alaos002/memcached-1.6.14/memcached+0x2cdb2 pc=0x561a51b81db2
+alloc start=0x7fb354000b70 size=104 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/logger.c:824 img=/home/alaos002/memcached-1.6.14/memcached+0x2cdb2 pc=0x561a51b81db2
+alloc start=0x7fb34b957000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fb3675cbc82
+alloc start=0x561a8dd86580 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+free  start=0x7fb34b957000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1dcd pc=0x7fb3675cbdcd
+alloc start=0x7fb360000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb354000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+free  start=0x7fb350000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fb3675cbcc5
+alloc start=0x7fb360010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x561a51b78bc9
+alloc start=0x7fb34c000b70 size=104 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/logger.c:824 img=/home/alaos002/memcached-1.6.14/memcached+0x2cdb2 pc=0x561a51b81db2
+alloc start=0x7fb34c000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb354010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x561a51b78bc9
+alloc start=0x7fb36404d000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb36404d010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb34c010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x561a51b78bc9
+alloc start=0x7fb35f4c8000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb35f4c8010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb344000000 size=134217728 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c82 pc=0x7fb3675cbc82
+alloc start=0x7fb35f486000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb35f486010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+free  start=0x7fb348000000 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1cc5 pc=0x7fb3675cbcc5
+alloc start=0x7fb344000b70 size=104 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/logger.c:824 img=/home/alaos002/memcached-1.6.14/memcached+0x2cdb2 pc=0x561a51b81db2
+alloc start=0x7fb344000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb344010c00 size=72 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1273 img=/home/alaos002/memcached-1.6.14/memcached+0x23bc9 pc=0x561a51b78bc9
+alloc start=0x7fb35f423000 size=135168 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x7fb35f423010 size=131096 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x7fb35ec22000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd866a0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb35e100000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd867c0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb35d582000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd868e0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb35ca6b000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x95707 pc=0x7fb3675bf707
+alloc start=0x561a8dd86a00 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x147da pc=0x7fb37b26e7da
+alloc start=0x7fb348000000 size=67108864 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa1c3d pc=0x7fb3675cbc3d
+alloc start=0x7fb35c69a000 size=139264 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa24b8 pc=0x7fb3675cc4b8
+alloc start=0x561a8dd86b20 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1f07e pc=0x7fb3678da07e
+alloc start=0x7fb35c69a010 size=137272 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1578 img=/home/alaos002/memcached-1.6.14/memcached+0x24964 pc=0x561a51b79964
+alloc start=0x561a8dd86b70 size=76 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10ae5a pc=0x7fb367634e5a
+alloc start=0x561a8dd86bd0 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10b85a pc=0x7fb36763585a
+alloc start=0x7fb348000b70 size=104 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/logger.c:824 img=/home/alaos002/memcached-1.6.14/memcached+0x2cdb2 pc=0x561a51b81db2
+alloc start=0x7fb348000be0 size=65560 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/bipbuffer.c:51 img=/home/alaos002/memcached-1.6.14/memcached+0x2a2ca pc=0x561a51b7f2ca
+alloc start=0x561a8dd86c20 size=472 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7f64e pc=0x7fb3675a964e
+alloc start=0x7fb348010c00 size=6168 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/slab_automove.c:37 img=/home/alaos002/memcached-1.6.14/memcached+0x2f593 pc=0x561a51b84593
+alloc start=0x561a8dd86e00 size=120 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x80123 pc=0x7fb3675aa123
+alloc start=0x7fb348012420 size=61440 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/slab_automove.c:40 img=/home/alaos002/memcached-1.6.14/memcached+0x2f5ba pc=0x561a51b845ba
+alloc start=0x561a8dd86e80 size=4096 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7fb3675a8ba4
+free  start=0x561a8dd86e00 size=120 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10a03e pc=0x7fb36763403e
+free  start=0x561a8dd86e80 size=4096 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x8dc79 pc=0x7fb3675b7c79
+free  start=0x561a8dd86c20 size=472 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7ed27 pc=0x7fb3675a8d27
+alloc start=0x561a8dd86e80 size=1560 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x143df7 pc=0x7fb36766ddf7
+alloc start=0x561a8dd874a0 size=488 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:656 img=/home/alaos002/memcached-1.6.14/memcached+0x949a pc=0x561a51b5e49a
+alloc start=0x561a8dd87690 size=1 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:673 img=/home/alaos002/memcached-1.6.14/memcached+0x9559 pc=0x561a51b5e559
+alloc start=0x561a8dd876b0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x36e71 pc=0x7fb3678f1e71
+alloc start=0x561a8dd877c0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+alloc start=0x561a8dd877e0 size=488 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:656 img=/home/alaos002/memcached-1.6.14/memcached+0x949a pc=0x561a51b5e49a
+alloc start=0x561a8dd879d0 size=1 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:673 img=/home/alaos002/memcached-1.6.14/memcached+0x9559 pc=0x561a51b5e559
+alloc start=0x561a8dd879f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1e387 pc=0x7fb3678d9387
+free  start=0x561a8dd86bd0 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10cfb0 pc=0x7fb367636fb0
+free  start=0x561a8dd86b70 size=76 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x10cfb0 pc=0x7fb367636fb0
+alloc start=0x561a8dd87a10 size=1024 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7fb3675a8ba4
+alloc start=0x561a8dd85a70 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x561a51b7f0ab
+alloc start=0x561a8dd852c0 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x561a51b7f0ab
+alloc start=0x561a8dd84b10 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x561a51b7f0ab
+alloc start=0x561a8dd84360 size=56 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/cache.c:84 img=/home/alaos002/memcached-1.6.14/memcached+0x2a0ab pc=0x561a51b7f0ab
+alloc start=0x7fb354010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22357 pc=0x7fb3678dd357
+alloc start=0x7fb34c010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22357 pc=0x7fb3678dd357
+alloc start=0x7fb360010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22357 pc=0x7fb3678dd357
+free  start=0x7fb354010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fb3678dae68
+alloc start=0x7fb344010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x22357 pc=0x7fb3678dd357
+free  start=0x7fb360010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fb3678dae68
+free  start=0x7fb34c010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fb3678dae68
+free  start=0x7fb344010c50 size=160 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1fe68 pc=0x7fb3678dae68
+free  start=0x7fb348012420 size=61440 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/slab_automove.c:58 img=/home/alaos002/memcached-1.6.14/memcached+0x2f64a pc=0x561a51b8464a
+free  start=0x7fb348010c00 size=6168 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/slab_automove.c:59 img=/home/alaos002/memcached-1.6.14/memcached+0x2f656 pc=0x561a51b84656
+free  start=0x7fb35c69a010 size=137272 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/items.c:1678 img=/home/alaos002/memcached-1.6.14/memcached+0x24f02 pc=0x561a51b79f02
+free  start=0x7fb35c69a000 size=139264 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa549a pc=0x7fb3675cf49a
+ANOMALY free_interior ptr=0x7fb3480008e0 inside_start=0x7fb348000000 inside_size=67108864 inside_tag=mmap off=2272 site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fb3675cf5e3
+free  start=0x561a8dd866a0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fb37b26eac7
+free  start=0x7fb35ec22000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fb3675bb458
+free  start=0x561a8dd84e10 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fb3678e406c
+free  start=0x561a8dd84660 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fb3678e406c
+free  start=0x561a8dd855c0 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fb3678e406c
+free  start=0x561a8dd85d70 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fb3678e406c
+free  start=0x561a8dd85d50 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fb3678db731
+free  start=0x561a8dd84640 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fb3678db731
+free  start=0x561a8dd855a0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fb3678db731
+free  start=0x561a8dd84df0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fb3678db731
+free  start=0x561a8dd85f00 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fb3678db801
+free  start=0x561a8dd847f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fb3678db801
+free  start=0x561a8dd84fa0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fb3678db801
+free  start=0x561a8dd85750 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fb3678db801
+free  start=0x561a8dd86030 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd85880 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd850d0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd84920 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd85f20 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fb3678d5153
+free  start=0x561a8dd84810 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fb3678d5153
+free  start=0x561a8dd84fc0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fb3678d5153
+free  start=0x561a8dd85770 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fb3678d5153
+free  start=0x561a8dd85ab0 size=664 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x561a51b7bca6
+free  start=0x561a8dd84b50 size=664 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x561a51b7bca6
+free  start=0x561a8dd85300 size=664 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x561a51b7bca6
+free  start=0x561a8dd843a0 size=664 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/thread.c:524 img=/home/alaos002/memcached-1.6.14/memcached+0x26ca6 pc=0x561a51b7bca6
+free  start=0x7fb3540008e0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fb3675cf5e3
+free  start=0x7fb3600008e0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fb3675cf5e3
+ANOMALY free_interior ptr=0x7fb3440008e0 inside_start=0x7fb344000000 inside_size=134217728 inside_tag=mmap off=2272 site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fb3675cf5e3
+free  start=0x7fb34c0008e0 tag=UNKNOWN site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0xa55e3 pc=0x7fb3675cf5e3
+free  start=0x561a8dd867c0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fb37b26eac7
+free  start=0x7fb35e100000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fb3675bb458
+free  start=0x561a8dd868e0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fb37b26eac7
+free  start=0x7fb35d582000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fb3675bb458
+free  start=0x561a8dd86a00 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fb37b26eac7
+free  start=0x7fb35ca6b000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fb3675bb458
+free  start=0x561a8dd7b7c0 size=272 tag=heap:calloc site=?:0 img=/lib64/ld-linux-x86-64.so.2+0x14ac7 pc=0x7fb37b26eac7
+free  start=0x7fb365f4d000 size=8392704 tag=mmap site=?:0 img=/lib/x86_64-linux-gnu/libc.so.6+0x91458 pc=0x7fb3675bb458
+free  start=0x561a8dd7b610 size=384 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x2906c pc=0x7fb3678e406c
+free  start=0x561a8dd7b5f0 size=24 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20731 pc=0x7fb3678db731
+free  start=0x561a8dd86b20 size=64 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x207f5 pc=0x7fb3678db7f5
+free  start=0x561a8dd7b7a0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x20801 pc=0x7fb3678db801
+free  start=0x561a8dd877c0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd879f0 size=16 tag=heap:calloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a13e pc=0x7fb3678d513e
+free  start=0x561a8dd876b0 size=256 tag=heap:malloc site=?:0 img=/lib/x86_64-linux-gnu/libevent-2.1.so.7+0x1a153 pc=0x7fb3678d5153
+free  start=0x561a8dd7b350 size=664 tag=heap:calloc site=/home/alaos002/memcached-1.6.14/memcached.c:6167 img=/home/alaos002/memcached-1.6.14/memcached+0x17310 pc=0x561a51b6c310
+free  start=0x561a8dd7b2a0 size=48 tag=heap:malloc site=/home/alaos002/memcached-1.6.14/memcached.c:6169 img=/home/alaos002/memcached-1.6.14/memcached+0x1731f pc=0x561a51b6c31f
 #eof

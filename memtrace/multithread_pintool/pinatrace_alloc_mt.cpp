@@ -66,6 +66,8 @@ static PROTO g_pValloc = nullptr;
 static PROTO g_pPvalloc = nullptr;
 static PROTO g_pPosixMemalign = nullptr;
 
+static AFUNPTR g_origCalloc = nullptr;
+
 static VOID InitAllocatorProtosOnce() {
     if (g_pMalloc) return; // already initialized
 
@@ -116,6 +118,7 @@ static VOID InitAllocatorProtosOnce() {
 // Thread-local context: per-thread state
 struct ThreadCtx {
     FILE* out;  // ΔΕΝ χρησιμοποιείται πλέον για αρχεία
+    int inCalloc;
     static constexpr UINT64 kMagic = 0xC0FFEE1234ABCDEFULL;
     UINT64 magic;
     THREADID owner_tid;
@@ -177,7 +180,7 @@ struct ThreadCtx {
         size_t pendingMremapNewsz;
         ADDRINT pendingMremapCallerIp;
 
-        static inline bool CallocPush(ThreadCtx* tc, size_t n, size_t sz, ADDRINT ip, UINT64& outSeq)
+static inline bool CallocPush(ThreadCtx* tc, size_t n, size_t sz, ADDRINT ip, UINT64& outSeq)
 {
     if (tc->pendingCallocTop >= ThreadCtx::kCallocStackMax) return false;
     outSeq = ++tc->callocSeq;
@@ -195,7 +198,9 @@ static inline bool CallocPop(ThreadCtx* tc, ThreadCtx::PendingCalloc& out)
     return true;
 }
     ThreadCtx()
-        : out(nullptr),
+        :out(nullptr),
+         inCalloc(0),
+          
           magic(kMagic),
           owner_tid(INVALID_THREADID),
           
@@ -463,129 +468,6 @@ static bool OverlapsLiveRegion_Locked(ADDRINT newStart, size_t newSize, Region &
     return false;
 }
 
-/*static VOID ParseProcMaps()
-{
-    std::ifstream in("/proc/self/maps");
-    if (!in.is_open()) {
-        PIN_GetLock(&g_events_lock, 0);
-        if (logf) { fprintf(logf, "[ParseProcMaps] failed to open /proc/self/maps\n"); fflush(logf); }
-        PIN_ReleaseLock(&g_events_lock);
-        return;
-    }
-
-    std::string line;
-    size_t added = 0, skipped = 0;
-
-    PIN_GetLock(&g_regions_lock, 0);
-
-    while (std::getline(in, line)) {
-        // Format:
-        // start-end perms offset dev inode [pathname]
-        //
-        // Example:
-        // 7f0bdc000000-7f0bdc021000 rw-p 00000000 00:00 0
-        // 55ae734fa000-55ae7351b000 rw-p 00000000 00:00 0 [heap]
-        //
-        std::istringstream iss(line);
-        std::string addr, perms, offset, dev, inode;
-        std::string pathname;
-
-        if (!(iss >> addr >> perms >> offset >> dev >> inode)) {
-            skipped++;
-            continue;
-        }
-
-        // rest of line (optional pathname)
-        std::getline(iss, pathname);
-        if (!pathname.empty() && pathname[0] == ' ') pathname.erase(0, 1);
-
-        // Parse start-end
-        auto dash = addr.find('-');
-        if (dash == std::string::npos) { skipped++; continue; }
-
-        std::string start_s = addr.substr(0, dash);
-        std::string end_s   = addr.substr(dash + 1);
-
-        ADDRINT start = 0, end = 0;
-
-        char* e1 = nullptr;
-        char* e2 = nullptr;
-
-        unsigned long long s = strtoull(start_s.c_str(), &e1, 16);
-        unsigned long long e = strtoull(end_s.c_str(),   &e2, 16);
-
-        if (!e1 || *e1 != '\0' || !e2 || *e2 != '\0') {
-            skipped++;
-            continue;
-        }
-
-        start = (ADDRINT)s;
-        end   = (ADDRINT)e;
-        if (end <= start) { skipped++; continue; }
-        size_t size = (size_t)(end - start);
-
-        // ---- FILTERING (important) ----
-        // We want to seed mostly anonymous/private mmaps that can later be freed by libc
-        // and cause UNKNOWN if they happened before hooks.
-        //
-        // Skip obvious "big general segments" that can create noise:
-        // - [heap] and [stack]
-        // - file-backed shared libs (pathname with '/')
-        //
-        // Keep:
-        // - anonymous mappings (empty pathname)
-        // - special bracket mappings like [anon], [vdso], etc (optional)
-        //
-        bool is_heap  = (pathname.find("[heap]")  != std::string::npos);
-        bool is_stack = (pathname.find("[stack]") != std::string::npos);
-
-        if (is_heap || is_stack) { skipped++; continue; }
-
-        bool file_backed = (!pathname.empty() && pathname[0] == '/');
-        if (file_backed) { skipped++; continue; }
-
-        // Optional: keep only writable private mappings (common for malloc mmaps)
-        // perms example: "rw-p"
-        bool is_private = (perms.size() >= 4 && perms[3] == 'p');
-       // bool is_writable = (!perms.empty() && perms.find('w') != std::string::npos);
-        if (!(is_private )) {           //&& is_writable
-            // If you want more coverage, comment this out.
-            skipped++;
-            continue;
-        }
-
-        // Insert mapping as a region
-        Region r;
-        r.start = start;
-        r.size  = size;
-
-        // Tag for debugging
-        if (pathname.empty()) r.tag = "procmap:anon";
-        else                  r.tag = "procmap:" + pathname; // e.g. [vdso]
-
-        // Avoid duplicates: if already present, don't override.
-        if (g_regions.find(r.start) == g_regions.end()) {
-            g_regions[r.start] = r;
-            added++;
-        } else {
-            skipped++;
-        }
-    }
-
-    PIN_ReleaseLock(&g_regions_lock);
-
-    PIN_GetLock(&g_events_lock, 0);
-    if (logf) {
-        fprintf(logf, "[ParseProcMaps] added=%zu skipped=%zu\n", added, skipped);
-        fflush(logf);
-    }
-    if (tracef) {
-        fprintf(tracef, "#ParseProcMaps added=%zu skipped=%zu\n", added, skipped);
-        fflush(tracef);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-}*/
-
 static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
     BOOL hasHandler, const EXCEPTION_INFO* pExceptInfo, VOID* v)
 {
@@ -607,51 +489,6 @@ PIN_ReleaseLock(&g_events_lock);
 return FALSE; // do not deliver to application
 }
 
-// --------------------- Record memory accesses --------------------
-/*static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
- {
-    if (!tracef) return;
-    if (!g_trace_memops) return;
-    const ADDRINT a = (ADDRINT)ea;
-    Region snap;
-    size_t off = 0;
-
-    if (!FindRegionWithOff(a, snap, off)) return;
-
-    // Αν for some reason bytes==0, κάνε fallback 1 (σπάνιο αλλά safe)
-    if (bytes == 0) bytes = 1;
-
-    //if (off >= snap.size) return;
-
-    //PIN_GetLock(&g_events_lock, tid);
-   
-    //fprintf(tracef,
-      //      "T%u %p: load  base: %p full: %p tag=%s off=%zu\n",
-        //    (unsigned)tid, ip,
-          //  (void*)snap.start, (void*)a,
-            //snap.tag.c_str(), off);
-    //PIN_ReleaseLock(&g_events_lock);
-    // ΣΩΣΤΟ bounds check:
-    if (off + (size_t)bytes > snap.size) {
-        // optional: γράψε anomaly για OOB
-        PIN_GetLock(&g_events_lock, tid);
-        fprintf(tracef,
-            "T%u %p: OOB_LOAD base:%p full:%p tag=%s off=%zu size=%u region_size=%zu\n",
-            (unsigned)tid, ip,
-            (void*)snap.start, (void*)a,
-            snap.tag.c_str(), off, bytes, snap.size);
-        PIN_ReleaseLock(&g_events_lock);
-        return;
-    }
-
-    PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef,
-        "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u\n",
-        (unsigned)tid, ip,
-        (void*)snap.start, (void*)a,
-        snap.tag.c_str(), off, bytes);
-    PIN_ReleaseLock(&g_events_lock);
-}*/
 static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 {
     if (!tracef) return;
@@ -693,55 +530,7 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
         imgC, (unsigned long)imgOff);
     PIN_ReleaseLock(&g_events_lock);
 }
-/*static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea) {
-    if (!tracef) return;
-    if (!g_trace_memops) return;
-    const ADDRINT a = (ADDRINT)ea;
-    Region snap;
-    size_t off = 0;
 
-    if (!FindRegionWithOff(a, snap, off)) return;
-    if (off >= snap.size) return;
-
-    PIN_GetLock(&g_events_lock, tid);
-     fprintf(tracef,
-                "T%u %p: store base: %p full: %p tag=%s off=%zu\n",
-                (unsigned)tid, ip,
-                (void*)snap.start, (void*)a,
-                snap.tag.c_str(), off);
-    PIN_ReleaseLock(&g_events_lock);
-}*/
-/*static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes) {
-    if (!tracef) return;
-    if (!g_trace_memops) return;
-
-    const ADDRINT a = (ADDRINT)ea;
-    Region snap;
-    size_t off = 0;
-
-    if (!FindRegionWithOff(a, snap, off)) return;
-
-    if (bytes == 0) bytes = 1;
-
-    if (off + (size_t)bytes > snap.size) {
-        PIN_GetLock(&g_events_lock, tid);
-        fprintf(tracef,
-            "T%u %p: OOB_STORE base:%p full:%p tag=%s off=%zu size=%u region_size=%zu\n",
-            (unsigned)tid, ip,
-            (void*)snap.start, (void*)a,
-            snap.tag.c_str(), off, bytes, snap.size);
-        PIN_ReleaseLock(&g_events_lock);
-        return;
-    }
-
-    PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef,
-        "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u\n",
-        (unsigned)tid, ip,
-        (void*)snap.start, (void*)a,
-        snap.tag.c_str(), off, bytes);
-    PIN_ReleaseLock(&g_events_lock);
-}*/
 static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 {
     if (!tracef) return;
@@ -1137,6 +926,169 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip);
 static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip);
 static VOID AfterReallocarray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip);
 
+//last change
+/*
+enum class MunmapActionKind {
+    ERASE_FULL,   // region removed completely
+    TRIM_HEAD,    // remove beginning of region -> start moves forward
+    TRIM_TAIL,    // remove end of region -> size shrinks
+    SPLIT         // remove middle -> split into left + right
+};
+
+struct MunmapAction {
+    MunmapActionKind kind;
+    Region before;
+    Region after_left;   // for TRIM_TAIL or SPLIT (left part)
+    Region after_right;  // for TRIM_HEAD or SPLIT (right part)
+    ADDRINT unmap_start;
+    size_t  unmap_len;
+};
+
+// assumes: caller checks rc==0 and addr!=0 and len!=0 and no overflow
+static void MunmapRangeUpdateMap(THREADID tid, ADDRINT addr, size_t len,
+                                 std::vector<MunmapAction>& actions_out)
+{
+    actions_out.clear();
+
+    const ADDRINT start = addr;
+    const ADDRINT end   = addr + (ADDRINT)len; // caller ensured no overflow
+
+    PIN_GetLock(&g_regions_lock, tid);
+
+    // start iteration near the first possible overlapping region
+    auto it = g_regions.lower_bound(start);
+    if (it != g_regions.begin()) {
+        auto prev = it; --prev;
+        // if prev overlaps start, we must consider it
+        const ADDRINT prev_end = prev->second.start + (ADDRINT)prev->second.size;
+        if (prev_end > start) it = prev;
+    }
+
+    while (it != g_regions.end()) {
+        Region r = it->second;
+        const ADDRINT r_start = r.start;
+        const ADDRINT r_end   = r.start + (ADDRINT)r.size;
+
+        // if region starts beyond unmap end -> stop
+        if (r_start >= end) break;
+
+        // if region ends before start -> next
+        if (r_end <= start) { ++it; continue; }
+
+        // Now we have overlap between [r_start,r_end) and [start,end)
+        const bool cover_full = (start <= r_start) && (end >= r_end);
+        const bool cut_head   = (start <= r_start) && (end <  r_end); // cut from beginning of region
+        const bool cut_tail   = (start >  r_start) && (end >= r_end); // cut from end of region
+        const bool cut_mid    = (start >  r_start) && (end <  r_end); // cut middle -> split
+
+        if (cover_full) {
+            MunmapAction a;
+            a.kind = MunmapActionKind::ERASE_FULL;
+            a.before = r;
+            a.unmap_start = start;
+            a.unmap_len = len;
+            actions_out.push_back(a);
+
+            it = g_regions.erase(it);
+            continue;
+        }
+
+        if (cut_head) {
+            // remove [r_start, end) -> keep [end, r_end)
+            const ADDRINT new_start = end;
+            const size_t  new_size  = (size_t)(r_end - end);
+
+            Region newr = r;
+            newr.start = new_start;
+            newr.size  = new_size;
+
+            MunmapAction a;
+            a.kind = MunmapActionKind::TRIM_HEAD;
+            a.before = r;
+            a.after_right = newr;
+            a.unmap_start = start;
+            a.unmap_len = len;
+            actions_out.push_back(a);
+
+            // erase old key and insert new key
+            it = g_regions.erase(it);
+            g_regions[newr.start] = newr;
+
+            // continue from next possible overlap (newr starts at end, so no further overlap with [start,end))
+            it = g_regions.lower_bound(end);
+            continue;
+        }
+
+        if (cut_tail) {
+            // remove [start, r_end) -> keep [r_start, start)
+            const size_t new_size = (size_t)(start - r_start);
+
+            MunmapAction a;
+            a.kind = MunmapActionKind::TRIM_TAIL;
+            a.before = r;
+
+            Region left = r;
+            left.size = new_size;
+            a.after_left = left;
+
+            a.unmap_start = start;
+            a.unmap_len = len;
+            actions_out.push_back(a);
+
+            it->second.size = new_size;
+            ++it;
+            continue;
+        }
+
+        if (cut_mid) {
+            // keep left: [r_start, start)
+            // keep right:[end, r_end)
+            const size_t left_size  = (size_t)(start - r_start);
+            const size_t right_size = (size_t)(r_end - end);
+
+            Region left = r;
+            left.size = left_size;
+
+            Region right = r;
+            right.start = end;
+            right.size  = right_size;
+
+            MunmapAction a;
+            a.kind = MunmapActionKind::SPLIT;
+            a.before = r;
+            a.after_left = left;
+            a.after_right = right;
+            a.unmap_start = start;
+            a.unmap_len = len;
+            actions_out.push_back(a);
+
+            // update current to left, insert right
+            it->second = left;
+            g_regions[right.start] = right;
+
+            // right starts at end, so no overlap with [start,end) anymore
+            it = g_regions.lower_bound(end);
+            continue;
+        }
+
+        // should not reach
+        ++it;
+    }
+
+    PIN_ReleaseLock(&g_regions_lock);
+}
+
+// helper: safe overflow check for [addr, addr+len)
+static inline bool RangeEndNoOverflow(ADDRINT addr, size_t len, ADDRINT& out_end)
+{
+    if (len == 0) return false;
+    const ADDRINT end = addr + (ADDRINT)len;
+    if (end < addr) return false; // overflow
+    out_end = end;
+    return true;
+}*/
+//mexri edw
+
 static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip);
 static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip);
 static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip);
@@ -1155,14 +1107,6 @@ static VOID BeforeMallocTLS(THREADID tid, size_t sz, ADDRINT caller_ip) {
     tc->pendingMallocCallerIp = caller_ip;
 }
 
-/*static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
-    if (!tc || !tc->hasPendingMalloc) return;
-    AfterMalloc(ret, tc->pendingMallocSize, tc->pendingMallocCallerIp);
-    tc->hasPendingMalloc = false;
-    tc->pendingMallocSize = 0;
-    tc->pendingMallocCallerIp = 0;
-}*/
 
 //debug aftermalloctlc
 static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
@@ -1170,16 +1114,7 @@ static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = SafeCTX(tid, "AfterMallocTLS");
     if (!tc) return;
 
-    if (!tc->hasPendingMalloc) {
-        fprintf(tracef, "[RAW AFTER MALLOC] T%u ret=%p NO-PENDING\n",
-                (unsigned)tid, (void*)ret);
-        return;
-    }
-
-    fprintf(tracef, "[RAW AFTER MALLOC] T%u ret=%p size=%zu callerIp=%p\n",
-            (unsigned)tid, (void*)ret,
-            (size_t)tc->pendingMallocSize,
-            (void*)tc->pendingMallocCallerIp);
+    if (!tc->hasPendingMalloc) return;
 
     AfterMalloc(ret, tc->pendingMallocSize, tc->pendingMallocCallerIp);
 
@@ -1188,56 +1123,6 @@ static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
     tc->pendingMallocCallerIp = 0;
 }
 
-/*static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
-    if (!tc) return;
-    PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        fprintf(logf, "[DBG] BeforeCallocTLS T%u n=%zu sz=%zu ip=%p\n",
-                (unsigned)tid, n, sz, (void*)caller_ip);
-        fflush(logf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-    tc->hasPendingCalloc = true;
-    tc->pendingCallocN = n;
-    tc->pendingCallocSz = sz;
-    tc->pendingCallocCallerIp = caller_ip;
-}*/
-
-/*static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
-    //ThreadCtx* tc = CTX(tid);
-    ThreadCtx* tc = SafeCTX(tid, "BeforeCallocTLS");
-    if (!tc) return;
-
-    if (tc->pendingCallocTop < ThreadCtx::kCallocStackMax) {
-        // ✅ seq id για κάθε push
-        UINT64 seq = ++tc->callocSeq;
-
-        tc->pendingCallocStack[tc->pendingCallocTop++] =
-            ThreadCtx::PendingCalloc{ (size_t)n, (size_t)sz, (ADDRINT)caller_ip, seq };
-
-        // ✅ PUSH log
-        PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf,
-                "[DBG] BeforeCallocTLS T%u PUSH seq=%llu n=%zu sz=%zu newTop=%d ip=%p\n",
-                (unsigned)tid, (unsigned long long)seq,
-                (size_t)n, (size_t)sz, tc->pendingCallocTop, (void*)caller_ip);
-            fflush(logf);
-        }
-        PIN_ReleaseLock(&g_events_lock);
-
-    } else {
-        // overflow του stack: γράψε anomaly και ΜΗΝ κάνεις push
-        PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[ANOMALY] calloc pending stack overflow T%u n=%zu sz=%zu ip=%p\n",
-                    (unsigned)tid, (size_t)n, (size_t)sz, (void*)caller_ip);
-            fflush(logf);
-        }
-        PIN_ReleaseLock(&g_events_lock);
-    }
-}*/
 
 static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
     ThreadCtx* tc = SafeCTX(tid, "BeforeCallocTLS");
@@ -1264,95 +1149,6 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
     }
     PIN_ReleaseLock(&g_events_lock);
 }
-
-/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
-    if (!tc) return;
-
-    PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        fprintf(logf, "[DBG] AfterCallocTLS  T%u ret=%p pending=%d\n",
-                (unsigned)tid, (void*)ret, (int)tc->hasPendingCalloc);
-        fflush(logf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-
-    if (!tc || !tc->hasPendingCalloc) return;
-    AfterCalloc(ret, tc->pendingCallocN, tc->pendingCallocSz, tc->pendingCallocCallerIp);
-    tc->hasPendingCalloc = false;
-    tc->pendingCallocN = tc->pendingCallocSz = 0;
-    tc->pendingCallocCallerIp = 0;
-}*/
-
-/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
-    fprintf(tracef, "[RAW] AfterCallocTLS  T%u ret=%p depth=%d\n",
-        (unsigned)tid, (void*)ret, tc->pendingCallocTop);
-    ThreadCtx* tc = CTX(tid);
-    if (!tc) return;
-
-    PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        fprintf(logf, "[DBG] AfterCallocTLS  T%u ret=%p depth=%d\n",
-                (unsigned)tid, (void*)ret, tc->pendingCallocTop);
-        fflush(logf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-
-    if (tc->pendingCallocTop <= 0) {
-        // Missing before (ή mismatch λόγω instrumentation gaps)
-        PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[ANOMALY] AfterCallocTLS with empty stack T%u ret=%p\n",
-                    (unsigned)tid, (void*)ret);
-            fflush(logf);
-        }
-        PIN_ReleaseLock(&g_events_lock);
-        return;
-    }
-
-    ThreadCtx::PendingCalloc p = tc->pendingCallocStack[--tc->pendingCallocTop];
-    AfterCalloc(ret, p.n, p.sz, p.callerIp);
-}*/
-
-//debug aftercalloctlc
-/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
-    //ThreadCtx* tc = CTX(tid);
-    ThreadCtx* tc = SafeCTX(tid, "AfterCallocTLS");
-    if (!tc) return;
-
-    if (tc->pendingCallocTop <= 0) {
-        fprintf(tracef, "[RAW AFTER CALLOC] T%u ret=%p EMPTY\n",
-                (unsigned)tid, (void*)ret);
-        return;
-    }
-
-    // ✅ PEEK (top πριν το pop)
-    const ThreadCtx::PendingCalloc& top =
-        tc->pendingCallocStack[tc->pendingCallocTop - 1];
-
-    size_t total = 0;
-    if (top.n != 0 && top.sz != 0 && top.n <= (std::numeric_limits<size_t>::max() / top.sz))
-        total = top.n * top.sz;
-
-    fprintf(tracef,
-        "[RAW AFTER CALLOC] T%u PEEK ret=%p topSeq=%llu n=%zu sz=%zu total=%zu top=%d callerIp=%p\n",
-        (unsigned)tid, (void*)ret,
-        (unsigned long long)top.seq,
-        (size_t)top.n, (size_t)top.sz, total,
-        tc->pendingCallocTop, (void*)top.callerIp);
-
-    // ✅ POP
-    ThreadCtx::PendingCalloc p = tc->pendingCallocStack[--tc->pendingCallocTop];
-
-    fprintf(tracef,
-        "[RAW AFTER CALLOC] T%u POP  ret=%p seq=%llu n=%zu sz=%zu newTop=%d\n",
-        (unsigned)tid, (void*)ret,
-        (unsigned long long)p.seq,
-        (size_t)p.n, (size_t)p.sz,
-        tc->pendingCallocTop);
-
-    AfterCalloc(ret, p.n, p.sz, p.callerIp);
-}*/
 
 static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = SafeCTX(tid, "AfterCallocTLS");
@@ -1499,10 +1295,6 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (logf) {
         std::string imgName; ADDRINT imgOff = 0;
         GetImgFromIp(caller_ip, imgName, imgOff);
-        /*fprintf(logf, "[MALLOC HIT] ret=%p sz=%zu caller_pc=%p img=%s+0x%lx\n",
-                (void*)ret, sz, (void*)caller_ip,
-                imgName.c_str(), (unsigned long)imgOff);*/
-                //size_t usable_dbg = malloc_usable_size((void*)ret);
                 fprintf(logf, "[MALLOC HIT] ret=%p req=%zu caller_pc=%p img=%s+0x%lx\n",
                     (void*)ret, sz, (void*)caller_ip,
                     imgName.c_str(), (unsigned long)imgOff);
@@ -1542,13 +1334,6 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
 
     // eventsf (προαιρετικά: κράτα παλιό format για scripts)
     if (eventsf) {
-        /*fprintf(eventsf,
-            "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
-            (void*)ret, sz,
-            srcFileC, (int)srcLine,
-            imgC, (unsigned long)imgOff,
-            (void*)caller_ip);
-        fflush(eventsf);*/
         fprintf(eventsf,
             "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
             (void*)ret, bytes,
@@ -1621,6 +1406,29 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     }
 
     PIN_ReleaseLock(&g_events_lock);
+}
+
+static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
+    AFUNPTR orig,
+    size_t n, size_t sz, ADDRINT caller_ip)
+{
+VOID* ret = nullptr;
+ThreadCtx* tc = SafeCTX(tid, "Calloc_Replacement");
+if (tc) tc->inCalloc++;
+
+PIN_CallApplicationFunction(
+ctxt, tid, CALLINGSTD_DEFAULT,
+orig, nullptr,
+PIN_PARG(void*), &ret,
+PIN_PARG(size_t), n,
+PIN_PARG(size_t), sz,
+PIN_PARG_END()
+);
+
+AfterCalloc((ADDRINT)ret, n, sz, caller_ip);
+
+if (tc) tc->inCalloc--;
+return ret;
 }
 
 static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
@@ -1772,26 +1580,14 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
 }
 
 static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
-    //claude
-    // DEBUG: Log EVERY free attempt
+    // (1) Ignore free(NULL) completely
+    if (p == 0) return;
+
+    THREADID tid = PIN_ThreadId();
+    // ---- Image name + offset ----
     std::string imgName;
     ADDRINT imgOff = 0;
-    GetImgFromIp(caller_ip, imgName, imgOff);   // client-lock εδώ (χωρίς events_lock)
-    PIN_GetLock(&g_events_lock, PIN_ThreadId());
-    if (logf) {
-        //fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p\n", (void*)p, (void*)caller_ip);
-        //std::string imgName; ADDRINT imgOff=0;
-       // GetImgFromIp(caller_ip, imgName, imgOff);
-        fprintf(logf, "[DEBUG FREE] ptr=%p caller_ip=%p img=%s+0x%lx\n",
-             (void*)p, (void*)caller_ip, imgName.c_str(), (unsigned long)imgOff);
-        fflush(logf);
-    }
-    PIN_ReleaseLock(&g_events_lock);
-    // End DEBUG
-
-    
-    if (!p) return;
-    THREADID tid = PIN_ThreadId();
+    GetImgFromIp(caller_ip, imgName, imgOff);   // client-lock
 
     // ---- Source location (κρατάμε αυτό που είχες) ----
     std::string srcFile;
@@ -1799,10 +1595,7 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
     GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
     const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
 
-    // ---- Image name + offset (ΝΕΟ) ----
-   // std::string imgName;
-    //ADDRINT imgOff = 0;
-    //GetImgFromIp(caller_ip, imgName, imgOff);
+    
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     bool known_exact = false;
@@ -1985,7 +1778,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
     }
     PIN_ReleaseLock(&g_events_lock);
 }
-//
+
 static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
 {
     if (rc != 0) return;
@@ -2061,6 +1854,187 @@ static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip
     }
     PIN_ReleaseLock(&g_events_lock);
 }
+
+//last change 
+/*
+static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip)
+{
+    if (rc != 0) return;
+    if (!addr || length == 0) return;
+
+    ADDRINT end = 0;
+    if (!RangeEndNoOverflow(addr, length, end)) return;
+
+    THREADID tid = PIN_ThreadId();
+
+    // caller source location (OUTSIDE locks)
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset (OUTSIDE locks)
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    // NEW: range-based update
+    std::vector<MunmapAction> acts;
+    MunmapRangeUpdateMap(tid, addr, length, acts);
+
+    // Now emit logs atomically
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (acts.empty()) {
+        // nothing overlapped -> unknown munmap in our tracking
+        if (eventsf) {
+            fprintf(eventsf,
+                    "free  start=%p tag=UNKNOWN_MUNMAP range=[%p,%p) len=%zu site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (void*)addr, (void*)addr, (void*)end, length,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(eventsf);
+        }
+        if (tracef) {
+            fprintf(tracef,
+                    "T%u ANOMALY munmap_unknown addr=%p len=%zu range=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                    (unsigned)tid, (void*)addr, length, (void*)addr, (void*)end,
+                    srcFileC, (int)srcLine,
+                    imgC, (unsigned long)imgOff,
+                    (void*)caller_ip);
+            fflush(tracef);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    // for each affected region: print what happened
+    for (const auto& a : acts) {
+        switch (a.kind) {
+            case MunmapActionKind::ERASE_FULL: {
+                // treat as "free" of the whole region
+                if (eventsf) {
+                    fprintf(eventsf,
+                            "free  start=%p size=%zu tag=%s munmap_range=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (void*)a.before.start, a.before.size, a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(eventsf);
+                }
+                if (tracef) {
+                    PrintFreeKnown(tid,
+                        (ADDRINT)a.before.start,
+                        a.before.size,
+                        a.before.tag.c_str(),
+                        (ADDRINT)addr, // Free_ptr = munmap addr (range-based)
+                        srcFileC,
+                        (int)srcLine,
+                        imgC,
+                        (unsigned long)imgOff,
+                        caller_ip
+                    );
+                }
+                break;
+            }
+
+            case MunmapActionKind::TRIM_HEAD: {
+                if (eventsf) {
+                    fprintf(eventsf,
+                            "ANOMALY munmap_trim_head old=[%p,%p) new=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_right.start, (void*)(a.after_right.start + a.after_right.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(eventsf);
+                }
+                if (tracef) {
+                    fprintf(tracef,
+                            "T%u ANOMALY munmap_trim_head old=[%p,%p) new=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (unsigned)tid,
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_right.start, (void*)(a.after_right.start + a.after_right.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(tracef);
+                }
+                break;
+            }
+
+            case MunmapActionKind::TRIM_TAIL: {
+                if (eventsf) {
+                    fprintf(eventsf,
+                            "ANOMALY munmap_trim_tail old=[%p,%p) new=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_left.start, (void*)(a.after_left.start + a.after_left.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(eventsf);
+                }
+                if (tracef) {
+                    fprintf(tracef,
+                            "T%u ANOMALY munmap_trim_tail old=[%p,%p) new=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (unsigned)tid,
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_left.start, (void*)(a.after_left.start + a.after_left.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(tracef);
+                }
+                break;
+            }
+
+            case MunmapActionKind::SPLIT: {
+                if (eventsf) {
+                    fprintf(eventsf,
+                            "ANOMALY munmap_split old=[%p,%p) left=[%p,%p) right=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_left.start, (void*)(a.after_left.start + a.after_left.size),
+                            (void*)a.after_right.start, (void*)(a.after_right.start + a.after_right.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(eventsf);
+                }
+                if (tracef) {
+                    fprintf(tracef,
+                            "T%u ANOMALY munmap_split old=[%p,%p) left=[%p,%p) right=[%p,%p) tag=%s munmap=[%p,%p) site=%s:%d img=%s+0x%lx pc=%p\n",
+                            (unsigned)tid,
+                            (void*)a.before.start, (void*)(a.before.start + a.before.size),
+                            (void*)a.after_left.start, (void*)(a.after_left.start + a.after_left.size),
+                            (void*)a.after_right.start, (void*)(a.after_right.start + a.after_right.size),
+                            a.before.tag.c_str(),
+                            (void*)addr, (void*)end,
+                            srcFileC, (int)srcLine,
+                            imgC, (unsigned long)imgOff,
+                            (void*)caller_ip);
+                    fflush(tracef);
+                }
+                break;
+            }
+        }
+    }
+
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+//mexri edw
 
 static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip)
 {
@@ -2220,7 +2194,9 @@ static VOID HookLibcAllocators(IMG img) {
      bool is_jemalloc = (imgName.find("jemalloc") != string::npos);
      bool is_tcmalloc = (imgName.find("tcmalloc") != string::npos);
  
-     if (!(is_libc || is_jemalloc || is_tcmalloc)) return;
+     bool is_ld = (imgName.find("ld-linux") != string::npos);
+     if (!(is_libc || is_jemalloc || is_tcmalloc || is_ld)) return;
+     //if (!(is_libc || is_jemalloc || is_tcmalloc)) return;
      InitAllocatorProtosOnce();
  
 
@@ -2230,170 +2206,31 @@ static VOID HookLibcAllocators(IMG img) {
         PIN_ReleaseLock(&g_events_lock);
     };
 
-    /*auto HookAfterRet1 = [&](const char* sym, AFUNPTR fn) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, fn,
-            IARG_FUNCRET_EXITPOINT_VALUE,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };
 
-    auto HookAfterRet2 = [&](const char* sym, AFUNPTR fn) {
+    auto ReplaceCalloc = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, fn,
-            IARG_FUNCRET_EXITPOINT_VALUE,
+    
+        //RTN_Open(r);
+    
+        // Κάνε replace: το g_origCalloc θα κρατήσει το original entry
+        g_origCalloc = RTN_ReplaceSignature(
+            r, AFUNPTR(Calloc_Replacement),
+            IARG_PROTOTYPE, g_pCalloc,
+            IARG_CONTEXT,
+            IARG_THREAD_ID,
+            IARG_ORIG_FUNCPTR,           // ✅ δίνει το original στον wrapper
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
             IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
+            IARG_END
+        );
+    
+        //RTN_Close(r);
         LogHook(sym);
         return true;
     };
-
-    auto HookBefore1 = [&](const char* sym, AFUNPTR fn) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_BEFORE, fn,
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };
-
-    
-
-    for (SEC s = IMG_SecHead(img); SEC_Valid(s); s = SEC_Next(s)) {
-        for (RTN r = SEC_RtnHead(s); RTN_Valid(r); r = RTN_Next(r)) {
-    
-            std::string raw = RTN_Name(r);
-            if (IsPltStub(raw)) continue;   // <<< ΣΗΜΑΝΤΙΚΟ: μην κάνεις hook malloc@plt/free@plt
-
-            std::string bn  = BaseSym(raw);
-    
-            // -------- malloc --------
-            if (bn == "malloc" || bn == "__libc_malloc" || bn == "je_malloc" || bn == "tc_malloc") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMalloc),
-                    IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // size
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-    
-            // -------- free --------
-            else if (bn == "free" || bn == "__libc_free" || bn == "cfree" || bn == "__libc_cfree" ||
-                bn == "je_free" || bn == "tc_free") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeFree),
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // ptr
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-    
-            // -------- calloc(nmemb,size) --------
-            else if (bn == "calloc" || bn == "__libc_calloc" || bn == "je_calloc" || bn == "tc_calloc") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
-                    IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // nmemb
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // size
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-    
-            // -------- realloc(old,size) --------
-            else if (bn == "realloc" || bn == "__libc_realloc" || bn == "je_realloc" || bn == "tc_realloc") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
-                    IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // old
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // size
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-            // -------- reallocarray(old, nmemb, size) --------
-            else if (bn == "reallocarray" || bn == "__libc_reallocarray" || bn == "je_reallocarray") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
-                    IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // oldp
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // nmemb
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,      // elemsz
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-            else if (bn == "strdup" || bn == "__strdup" || bn == "__GI___strdup") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrdup),
-                    IARG_FUNCRET_EXITPOINT_VALUE,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-            else if (bn == "strndup" || bn == "__strndup" || bn == "__GI___strndup") {
-                if (!TryMarkHooked(r)) continue;
-                RTN_Open(r);
-                RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrndup),
-                    IARG_FUNCRET_EXITPOINT_VALUE,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
-                    IARG_RETURN_IP,
-                    IARG_END);
-                RTN_Close(r);
-                LogHook(raw.c_str());
-            }
-        }
-    }*/
-
-    /*auto HookAfterMallocLike = [&](const char* sym) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-    
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMalloc),
-            IARG_PROTOTYPE, g_pMalloc,
-            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // size
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };*/
 
     auto HookMallocLike = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
@@ -2436,23 +2273,6 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
     
-    /*auto HookAfterCallocLike = [&](const char* sym) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-    
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCalloc),
-            IARG_PROTOTYPE, g_pCalloc,
-            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // nmemb
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };*/
 
     auto HookCallocLikeTLS = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
@@ -2478,23 +2298,6 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
     
-    /*auto HookAfterReallocLike = [&](const char* sym) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-    
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterRealloc),
-            IARG_PROTOTYPE, g_pRealloc,
-            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // oldp
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // size
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };*/
 
     auto HookReallocLikeTLS = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
@@ -2520,24 +2323,6 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
     
-    /*auto HookAfterReallocarrayLike = [&](const char* sym) {
-        RTN r = RTN_FindByName(img, sym);
-        if (!RTN_Valid(r)) return false;
-        if (!TryMarkHooked(r)) return false;
-    
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterReallocarray),
-            IARG_PROTOTYPE, g_pReallocarray,
-            IARG_FUNCRET_EXITPOINT_VALUE,      // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,  // oldp
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,  // nmemb
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 2,  // elemsz
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
-        return true;
-    };*/
 
     auto HookReallocarrayLikeTLS = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
@@ -2653,35 +2438,6 @@ static VOID HookLibcAllocators(IMG img) {
         return true;
     };
 
-    // --- Bulletproof explicit hooks for common aliases ---
-    /*HookAfterRet1("malloc",       AFUNPTR(AfterMalloc));        // ret, size(0), return_ip
-    HookAfterRet1("__libc_malloc",AFUNPTR(AfterMalloc));
-
-    HookBefore1 ("free",          AFUNPTR(BeforeFree));         // ptr(0), return_ip
-    HookBefore1 ("__libc_free",   AFUNPTR(BeforeFree));
-    HookBefore1 ("cfree",         AFUNPTR(BeforeFree));
-    HookBefore1 ("__libc_cfree",  AFUNPTR(BeforeFree));
-
-    // extra aliases
-    //HookBefore1("cfree",        AFUNPTR(BeforeFree));
-    //HookBefore1("__libc_cfree", AFUNPTR(BeforeFree));
-
-    // aligned / other allocators
-    HookAfterRet2("aligned_alloc", AFUNPTR(AfterAlignedAlloc));
-    HookAfterRet2("memalign",      AFUNPTR(AfterMemalign));
-    HookAfterRet1("valloc",        AFUNPTR(AfterValloc));
-    HookAfterRet1("pvalloc",       AFUNPTR(AfterPvalloc));
-
-        // jemalloc explicit
-        HookAfterRet1("je_malloc",  AFUNPTR(AfterMalloc));
-        HookBefore1 ("je_free",     AFUNPTR(BeforeFree));
-        HookAfterRet2("je_calloc",  AFUNPTR(AfterCalloc));   // NOTE: je_calloc έχει 2 args (nmemb,size)
-        HookAfterRet2("je_realloc", AFUNPTR(AfterRealloc));  // NOTE: je_realloc έχει 2 args (old,size) -> ok με HookAfterRet2? όχι! (δες σημείωση)
-
-
-        HookBefore1 ("__GI___libc_free", AFUNPTR(BeforeFree));
-        HookBefore1 ("__GI_free",        AFUNPTR(BeforeFree));
-        HookBefore1 ("__GI___free",      AFUNPTR(BeforeFree));*/
 
         // ---------------- Deterministic hooks (with PROTOTYPE) ----------------
 
@@ -2703,12 +2459,28 @@ for (const char* sym : {
     HookBeforeFreeLike(sym);
 }
 
-// calloc aliases
+
+// calloc: κάνε replace (όχι TLS BEFORE/AFTER)
+bool replaced = false;
+
+// Πρώτα προσπάθησε τα πιο “σωστά”/συχνά
 for (const char* sym : {
-    "calloc", "__libc_calloc", "__GI___libc_calloc",
+    "__libc_calloc",
+    "__GI___libc_calloc",
+    "calloc",
     "__GI_calloc"
 }) {
-    HookCallocLikeTLS(sym);
+    if (ReplaceCalloc(sym)) { replaced = true; break; }
+}
+
+if (!replaced) {
+    // προαιρετικό log ότι δεν βρέθηκε calloc symbol
+    PIN_GetLock(&g_events_lock, 0);
+    if (logf) {
+        fprintf(logf, "[WARN] Δεν βρέθηκε calloc για replace μέσα στο %s\n", imgName.c_str());
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 }
 
 // realloc aliases
@@ -2762,24 +2534,7 @@ for (const char* sym : { "je_reallocarray" }) {
     HookReallocarrayLikeTLS(sym);
 }
 
-    // posix_memalign returns int, writes pointer to *memptr
-  /* {
-        RTN r = RTN_FindByName(img, "posix_memalign");
-        if (RTN_Valid(r)) {
-            if (TryMarkHooked(r)) {
-            RTN_Open(r);
-            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterPosixMemalign),
-                IARG_FUNCRET_EXITPOINT_VALUE,                 // rc
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,             // void** memptr
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,             // alignment
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 2,             // size
-                IARG_RETURN_IP,
-                IARG_END);
-            RTN_Close(r);
-            LogHook("posix_memalign");
-            }
-        }
-    }*/
+  
     // ---------------- mmap/munmap/mremap hooks ----------------
 {
     // mmap variants
@@ -2901,17 +2656,6 @@ static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
     tc->owner_tid = tid;
     PIN_SetThreadData(g_tls_key, tc, tid);
 }
-
-// kathe thread apodesmevei to thread-local context.
-/*static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
-    ThreadCtx* tc = CTX(tid);
-    if (tc) {
-        tc->pendingCallocTop = 0;
-        // den iparxei pleon per-thread file
-        delete tc;
-        PIN_SetThreadData(g_tls_key, nullptr, tid);
-    }
-}*/
 
 static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = CTX(tid);
