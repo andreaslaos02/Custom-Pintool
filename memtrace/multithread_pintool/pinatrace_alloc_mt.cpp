@@ -116,7 +116,9 @@ static VOID InitAllocatorProtosOnce() {
 // Thread-local context: per-thread state
 struct ThreadCtx {
     FILE* out;  // ΔΕΝ χρησιμοποιείται πλέον για αρχεία
-
+    static constexpr UINT64 kMagic = 0xC0FFEE1234ABCDEFULL;
+    UINT64 magic;
+    THREADID owner_tid;
     // Pending alloc metadata (για __memtrace_alloc_site)
     bool        hasPendingAlloc;
     size_t      pendingSize;
@@ -140,8 +142,10 @@ struct ThreadCtx {
             size_t  n;
             size_t  sz;
             ADDRINT callerIp;
+            UINT64 seq;
         };
-        
+        UINT64 callocSeq;
+
         static constexpr int kCallocStackMax = 64;
         PendingCalloc pendingCallocStack[kCallocStackMax];
         int pendingCallocTop; // 0..kCallocStackMax
@@ -173,8 +177,28 @@ struct ThreadCtx {
         size_t pendingMremapNewsz;
         ADDRINT pendingMremapCallerIp;
 
+        static inline bool CallocPush(ThreadCtx* tc, size_t n, size_t sz, ADDRINT ip, UINT64& outSeq)
+{
+    if (tc->pendingCallocTop >= ThreadCtx::kCallocStackMax) return false;
+    outSeq = ++tc->callocSeq;
+    tc->pendingCallocStack[tc->pendingCallocTop] =
+        ThreadCtx::PendingCalloc{ n, sz, ip, outSeq };
+    tc->pendingCallocTop++; // increment AFTER write (deterministic)
+    return true;
+}
+
+static inline bool CallocPop(ThreadCtx* tc, ThreadCtx::PendingCalloc& out)
+{
+    if (tc->pendingCallocTop <= 0) return false;
+    tc->pendingCallocTop--;            // decrement BEFORE read (deterministic)
+    out = tc->pendingCallocStack[tc->pendingCallocTop];
+    return true;
+}
     ThreadCtx()
         : out(nullptr),
+          magic(kMagic),
+          owner_tid(INVALID_THREADID),
+          
           hasPendingAlloc(false),
           pendingSize(0),
           pendingTypeTag(nullptr),
@@ -183,10 +207,13 @@ struct ThreadCtx {
           pendingLine(0),
           pendingCallerIp(0),
 
+          
+
           hasPendingMalloc(false),
           pendingMallocSize(0),
           pendingMallocCallerIp(0),
 
+          callocSeq(0),
           /*hasPendingCalloc(false),
           pendingCallocN(0),
           pendingCallocSz(0),
@@ -348,6 +375,23 @@ static inline ThreadCtx* CTX(THREADID tid) {
     return static_cast<ThreadCtx*>(PIN_GetThreadData(g_tls_key, tid));
 }
 
+static inline ThreadCtx* SafeCTX(THREADID tid, const char* who)
+{
+    ThreadCtx* tc = static_cast<ThreadCtx*>(PIN_GetThreadData(g_tls_key, tid));
+    if (!tc || tc->magic != ThreadCtx::kMagic || tc->owner_tid != tid) {
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[TLS-ANOMALY] %s tid=%u tc=%p magic_ok=%d owner=%d\n",
+                    who, (unsigned)tid, (void*)tc,
+                    (tc && tc->magic == ThreadCtx::kMagic),
+                    tc ? (int)tc->owner_tid : -1);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return nullptr;
+    }
+    return tc;
+}
 // ------------------------- Lookup helper -------------------------
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
 
@@ -1103,7 +1147,8 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
 
 static VOID BeforeMallocTLS(THREADID tid, size_t sz, ADDRINT caller_ip) {
     //if (tc->hasPendingMalloc) { /* optional log anomaly */ }
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeMallocTLS");
     if (!tc) return;
     tc->hasPendingMalloc = true;
     tc->pendingMallocSize = sz;
@@ -1121,7 +1166,8 @@ static VOID BeforeMallocTLS(THREADID tid, size_t sz, ADDRINT caller_ip) {
 
 //debug aftermalloctlc
 static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterMallocTLS");
     if (!tc) return;
 
     if (!tc->hasPendingMalloc) {
@@ -1158,28 +1204,62 @@ static VOID AfterMallocTLS(THREADID tid, ADDRINT ret) {
     tc->pendingCallocCallerIp = caller_ip;
 }*/
 
-static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+/*static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeCallocTLS");
     if (!tc) return;
 
     if (tc->pendingCallocTop < ThreadCtx::kCallocStackMax) {
-        tc->pendingCallocStack[tc->pendingCallocTop++] = {n, sz, caller_ip};
+        // ✅ seq id για κάθε push
+        UINT64 seq = ++tc->callocSeq;
+
+        tc->pendingCallocStack[tc->pendingCallocTop++] =
+            ThreadCtx::PendingCalloc{ (size_t)n, (size_t)sz, (ADDRINT)caller_ip, seq };
+
+        // ✅ PUSH log
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf,
+                "[DBG] BeforeCallocTLS T%u PUSH seq=%llu n=%zu sz=%zu newTop=%d ip=%p\n",
+                (unsigned)tid, (unsigned long long)seq,
+                (size_t)n, (size_t)sz, tc->pendingCallocTop, (void*)caller_ip);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+
     } else {
         // overflow του stack: γράψε anomaly και ΜΗΝ κάνεις push
         PIN_GetLock(&g_events_lock, tid);
         if (logf) {
             fprintf(logf, "[ANOMALY] calloc pending stack overflow T%u n=%zu sz=%zu ip=%p\n",
-                    (unsigned)tid, n, sz, (void*)caller_ip);
+                    (unsigned)tid, (size_t)n, (size_t)sz, (void*)caller_ip);
             fflush(logf);
         }
         PIN_ReleaseLock(&g_events_lock);
-        // δεν κάνουμε return; απλά δεν κρατάμε pending record
+    }
+}*/
+
+static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip) {
+    ThreadCtx* tc = SafeCTX(tid, "BeforeCallocTLS");
+    if (!tc) return;
+
+    UINT64 seq = 0;
+    if (!ThreadCtx::CallocPush(tc, n, sz, caller_ip, seq)) {
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[ANOMALY] calloc stack overflow T%u n=%zu sz=%zu ip=%p top=%d\n",
+                    (unsigned)tid, n, sz, (void*)caller_ip, tc->pendingCallocTop);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
     }
 
+    // (προαιρετικό) debug log
     PIN_GetLock(&g_events_lock, tid);
     if (logf) {
-        fprintf(logf, "[DBG] BeforeCallocTLS T%u n=%zu sz=%zu ip=%p depth=%d\n",
-                (unsigned)tid, n, sz, (void*)caller_ip, tc->pendingCallocTop);
+        fprintf(logf, "[DBG] calloc PUSH T%u seq=%llu n=%zu sz=%zu top=%d ip=%p\n",
+                (unsigned)tid, (unsigned long long)seq, n, sz, tc->pendingCallocTop, (void*)caller_ip);
         fflush(logf);
     }
     PIN_ReleaseLock(&g_events_lock);
@@ -1235,8 +1315,9 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
 }*/
 
 //debug aftercalloctlc
-static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+/*static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterCallocTLS");
     if (!tc) return;
 
     if (tc->pendingCallocTop <= 0) {
@@ -1245,23 +1326,65 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
         return;
     }
 
+    // ✅ PEEK (top πριν το pop)
     const ThreadCtx::PendingCalloc& top =
         tc->pendingCallocStack[tc->pendingCallocTop - 1];
 
-    size_t total = (size_t)top.n * (size_t)top.sz;
+    size_t total = 0;
+    if (top.n != 0 && top.sz != 0 && top.n <= (std::numeric_limits<size_t>::max() / top.sz))
+        total = top.n * top.sz;
 
-    fprintf(tracef, "[RAW AFTER CALLOC] T%u ret=%p n=%zu sz=%zu total=%zu depth=%d callerIp=%p\n",
-            (unsigned)tid, (void*)ret,
-            (size_t)top.n, (size_t)top.sz, total,
-            tc->pendingCallocTop,
-            (void*)top.callerIp);
+    fprintf(tracef,
+        "[RAW AFTER CALLOC] T%u PEEK ret=%p topSeq=%llu n=%zu sz=%zu total=%zu top=%d callerIp=%p\n",
+        (unsigned)tid, (void*)ret,
+        (unsigned long long)top.seq,
+        (size_t)top.n, (size_t)top.sz, total,
+        tc->pendingCallocTop, (void*)top.callerIp);
 
+    // ✅ POP
     ThreadCtx::PendingCalloc p = tc->pendingCallocStack[--tc->pendingCallocTop];
+
+    fprintf(tracef,
+        "[RAW AFTER CALLOC] T%u POP  ret=%p seq=%llu n=%zu sz=%zu newTop=%d\n",
+        (unsigned)tid, (void*)ret,
+        (unsigned long long)p.seq,
+        (size_t)p.n, (size_t)p.sz,
+        tc->pendingCallocTop);
+
+    AfterCalloc(ret, p.n, p.sz, p.callerIp);
+}*/
+
+static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = SafeCTX(tid, "AfterCallocTLS");
+    if (!tc) return;
+
+    ThreadCtx::PendingCalloc p;
+    if (!ThreadCtx::CallocPop(tc, p)) {
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[ANOMALY] calloc POP EMPTY T%u ret=%p\n",
+                    (unsigned)tid, (void*)ret);
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    // (προαιρετικό) debug log
+    PIN_GetLock(&g_events_lock, tid);
+    if (logf) {
+        fprintf(logf, "[DBG] calloc POP  T%u seq=%llu n=%zu sz=%zu top=%d ret=%p\n",
+                (unsigned)tid, (unsigned long long)p.seq, p.n, p.sz, tc->pendingCallocTop, (void*)ret);
+        fflush(logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
     AfterCalloc(ret, p.n, p.sz, p.callerIp);
 }
 
 static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeReallocTLS");
     if (!tc) return;
     tc->hasPendingRealloc = true;
     tc->pendingReallocOldp = oldp;
@@ -1270,7 +1393,8 @@ static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT call
 }
 
 static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterReallocTLS");
     if (!tc || !tc->hasPendingRealloc) return;
     AfterRealloc(ret, tc->pendingReallocOldp, tc->pendingReallocSz, tc->pendingReallocCallerIp);
     tc->hasPendingRealloc = false;
@@ -1280,7 +1404,8 @@ static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
 }
 
 static VOID BeforeReallocarrayTLS(THREADID tid, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeReallocarrayTLS");
     if (!tc) return;
     tc->hasPendingReallocarray = true;
     tc->pendingReallocarrayOldp = oldp;
@@ -1290,7 +1415,8 @@ static VOID BeforeReallocarrayTLS(THREADID tid, ADDRINT oldp, size_t nmemb, size
 }
 
 static VOID AfterReallocarrayTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterReallocarrayTLS");
     if (!tc || !tc->hasPendingReallocarray) return;
     AfterReallocarray(ret,
         tc->pendingReallocarrayOldp,
@@ -1304,14 +1430,16 @@ static VOID AfterReallocarrayTLS(THREADID tid, ADDRINT ret) {
 }
 
 static VOID BeforeMmapTLS(THREADID tid, size_t length, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeMmapTLS");
     if (!tc) return;
     tc->hasPendingMmap = true;
     tc->pendingMmapLen = length;
     tc->pendingMmapCallerIp = caller_ip;
 }
 static VOID AfterMmapTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterMmapTLS");
     if (!tc || !tc->hasPendingMmap) return;
     AfterMmap(ret, tc->pendingMmapLen, tc->pendingMmapCallerIp);
     tc->hasPendingMmap = false;
@@ -1320,7 +1448,8 @@ static VOID AfterMmapTLS(THREADID tid, ADDRINT ret) {
 }
 
 static VOID BeforeMunmapTLS(THREADID tid, ADDRINT addr, size_t length, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeMunmapTLS");
     if (!tc) return;
     tc->hasPendingMunmap = true;
     tc->pendingMunmapAddr = addr;
@@ -1328,7 +1457,8 @@ static VOID BeforeMunmapTLS(THREADID tid, ADDRINT addr, size_t length, ADDRINT c
     tc->pendingMunmapCallerIp = caller_ip;
 }
 static VOID AfterMunmapTLS(THREADID tid, INT32 rc) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterMunmapTLS");
     if (!tc || !tc->hasPendingMunmap) return;
     AfterMunmap(rc, tc->pendingMunmapAddr, tc->pendingMunmapLen, tc->pendingMunmapCallerIp);
     tc->hasPendingMunmap = false;
@@ -1338,7 +1468,8 @@ static VOID AfterMunmapTLS(THREADID tid, INT32 rc) {
 }
 
 static VOID BeforeMremapTLS(THREADID tid, ADDRINT oldp, size_t oldsz, size_t newsz, ADDRINT caller_ip) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "BeforeMremapTLS");
     if (!tc) return;
     tc->hasPendingMremap = true;
     tc->pendingMremapOldp = oldp;
@@ -1347,7 +1478,8 @@ static VOID BeforeMremapTLS(THREADID tid, ADDRINT oldp, size_t oldsz, size_t new
     tc->pendingMremapCallerIp = caller_ip;
 }
 static VOID AfterMremapTLS(THREADID tid, ADDRINT ret) {
-    ThreadCtx* tc = CTX(tid);
+    //ThreadCtx* tc = CTX(tid);
+    ThreadCtx* tc = SafeCTX(tid, "AfterMremapTLS");
     if (!tc || !tc->hasPendingMremap) return;
     AfterMremap(ret, tc->pendingMremapOldp, tc->pendingMremapOldsz, tc->pendingMremapNewsz, tc->pendingMremapCallerIp);
     tc->hasPendingMremap = false;
@@ -2765,16 +2897,42 @@ static VOID ImageLoad(IMG img, VOID*) {
 // ΔΕΝ ανοίγουμε πια per-thread trace files, μόνο TLS context
 static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = new ThreadCtx();
-    tc->out = nullptr; // δεν χρησιμοποιείται πλέον
+    //tc->out = nullptr; // δεν χρησιμοποιείται πλέον
+    tc->owner_tid = tid;
     PIN_SetThreadData(g_tls_key, tc, tid);
 }
 
 // kathe thread apodesmevei to thread-local context.
-static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
+/*static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = CTX(tid);
     if (tc) {
         tc->pendingCallocTop = 0;
         // den iparxei pleon per-thread file
+        delete tc;
+        PIN_SetThreadData(g_tls_key, nullptr, tid);
+    }
+}*/
+
+static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
+    ThreadCtx* tc = CTX(tid);
+    if (tc) {
+        // ✅ αν έμειναν pending calloc entries, τύπωσε τα
+        PIN_GetLock(&g_events_lock, tid);
+        if (logf) {
+            fprintf(logf, "[FINI] T%u pendingCallocTop=%d\n",
+                    (unsigned)tid, tc->pendingCallocTop);
+            for (int i = 0; i < tc->pendingCallocTop; i++) {
+                const auto& p = tc->pendingCallocStack[i];
+                fprintf(logf,
+                        "  [FINI-PENDING] i=%d seq=%llu n=%zu sz=%zu ip=%p\n",
+                        i, (unsigned long long)p.seq,
+                        (size_t)p.n, (size_t)p.sz,
+                        (void*)p.callerIp);
+            }
+            fflush(logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+
         delete tc;
         PIN_SetThreadData(g_tls_key, nullptr, tid);
     }
