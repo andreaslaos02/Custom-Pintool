@@ -40,7 +40,10 @@ struct Region {
     size_t  size;
     string  tag;
     //bool   freed;
-    Region() : start(0), size(0), tag("-")  {} //freed(false)
+    //for load/store caller
+    string  alloc_file;
+    INT32   alloc_line;
+    Region() : start(0), size(0), tag("-"), alloc_file("?"), alloc_line(0)  {} //freed(false)
 };
 
 // Global region map (keyed by start)
@@ -792,12 +795,19 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     }
 
     PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef,
+    /*fprintf(tracef,
         "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
         (unsigned)tid, (void*)ipA,
         (void*)snap.start, (void*)a,
         snap.tag.c_str(), off, bytes,
-        imgC, (unsigned long)imgOff);
+        imgC, (unsigned long)imgOff);*/
+        fprintf(tracef,
+            "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes,
+            imgC, (unsigned long)imgOff,
+            snap.alloc_file.c_str(), (int)snap.alloc_line);
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -833,12 +843,19 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     }
 
     PIN_GetLock(&g_events_lock, tid);
-    fprintf(tracef,
+    /*fprintf(tracef,
         "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
         (unsigned)tid, (void*)ipA,
         (void*)snap.start, (void*)a,
         snap.tag.c_str(), off, bytes,
-        imgC, (unsigned long)imgOff);
+        imgC, (unsigned long)imgOff);*/
+        fprintf(tracef,
+            "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes,
+            imgC, (unsigned long)imgOff,
+            snap.alloc_file.c_str(), (int)snap.alloc_line);
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -1585,11 +1602,16 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = bytes; r.tag = "heap:malloc";     //r.size =sz;  //θα το αλλάξουμε σε πραγματικό size με βάση το malloc_usable_size
+    Region r;
+    r.start = ret;
+    r.size = bytes;
+    r.tag = "heap:malloc";     //r.size =sz;  //θα το αλλάξουμε σε πραγματικό size με βάση το malloc_usable_size
+    r.alloc_file = srcFileC;    //for caller on load/store
+    r.alloc_line = srcLine;     //for caller on load/store
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
-    PIN_GetLock(&g_events_lock, tid);
 
+    PIN_GetLock(&g_events_lock, tid);
     // trace (new clean format)
     PrintAlloc(tid,
         (ADDRINT)ret,
@@ -1647,6 +1669,8 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
 
     PIN_GetLock(&g_regions_lock, tid);
     Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc";
+    r.alloc_file = srcFileC;
+    r.alloc_line = srcLine;
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
@@ -1775,6 +1799,8 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         size_t bytes = sz;   // requested only
         PIN_GetLock(&g_regions_lock, tid);
         Region r; r.start = ret; r.size = bytes; r.tag = "heap:realloc";
+        r.alloc_file = srcFileC;
+        r.alloc_line = srcLine;
         g_regions[ret] = r;
         PIN_ReleaseLock(&g_regions_lock);
 
@@ -2020,6 +2046,8 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 
     PIN_GetLock(&g_regions_lock, tid);
     Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    r.alloc_file = srcFileC;    //for load/store caller
+    r.alloc_line = srcLine;
     g_regions[ret] = r;
     PIN_ReleaseLock(&g_regions_lock);
 
@@ -2389,6 +2417,8 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
     if (ret && ret != (ADDRINT)-1 && newsz) {
         PIN_GetLock(&g_regions_lock, tid);
         Region r; r.start = ret; r.size = newsz; r.tag = "mremap";
+        r.alloc_file = srcFileC;
+        r.alloc_line = srcLine;
         g_regions[ret] = r;
         PIN_ReleaseLock(&g_regions_lock);
 
