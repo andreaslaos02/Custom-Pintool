@@ -18,6 +18,9 @@
 #include <sstream>
 #include <vector>
 #include <cstdlib>   // strtoull
+#include <unordered_map>
+#include <utility>
+#include <array>
 
 using std::string;
 
@@ -48,7 +51,7 @@ static PIN_LOCK g_regions_lock;  // protects g_regions
 static PIN_LOCK g_events_lock;   // protects events/log/trace global files
 
 // -------------------------- Output files -------------------------
-static FILE* logf    = nullptr;          // pintool.log (hooks summary)
+static FILE* g_logf    = nullptr;          // pintool.log (hooks summary)
 static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
 
@@ -59,6 +62,25 @@ static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
 static std::set<ADDRINT> g_hooked_rtn_addrs;
 static PIN_LOCK g_hook_lock;
 
+// ---------------------- Source resolve cache ----------------------
+struct SrcLoc {
+    std::string file;
+    INT32 line;
+    INT32 col;
+
+    SrcLoc() : file(), line(0), col(0) {}
+    SrcLoc(const std::string& f, INT32 l, INT32 c) : file(f), line(l), col(c) {}
+};
+
+static std::unordered_map<std::string, SrcLoc> g_src_cache;
+static PIN_LOCK g_src_cache_lock;
+
+static inline std::string MakeSrcCacheKey(const std::string& imgPath, ADDRINT imgOff)
+{
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s|0x%lx", imgPath.c_str(), (unsigned long)imgOff);
+    return std::string(buf);
+}
 
 // ------------------- Prototypes for allocator RTNs (IMPORTANT) -------------------
 static PROTO g_pMalloc = nullptr;
@@ -278,24 +300,109 @@ static inline void GetImgFromIp(ADDRINT ip, std::string &imgName, ADDRINT &imgOf
     PIN_UnlockClient();
 }
 
-// Helper function gia to GetSourceLocation oste na doume apo pou proerxonde ta frees
-/*static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
+static inline bool ResolveSrcWithAddr2line(const std::string& imgPath,
+    ADDRINT imgOff,
+    std::string& file,
+    INT32& line,
+    INT32& col)
 {
-    file.clear();
-    line = 0;
-    col  = 0;
+file.clear();
+line = 0;
+col  = 0;
 
-    if (ip == 0) return;
+if (imgPath.empty()) return false;
 
-    // Pin doc: in analysis routines, take client lock
-    PIN_LockClient();
-    PIN_GetSourceLocation(ip, &col, &line, &file);
-    PIN_UnlockClient();
+// 1) cache lookup
+const std::string key = MakeSrcCacheKey(imgPath, imgOff);
 
-    // αν δεν βρει info -> file="" line=0 col=0
-}*/
+PIN_GetLock(&g_src_cache_lock, 0);
+auto it = g_src_cache.find(key);
+if (it != g_src_cache.end()) {
+file = it->second.file;
+line = it->second.line;
+col  = it->second.col;
+PIN_ReleaseLock(&g_src_cache_lock);
+return !file.empty() && line > 0;
+}
+PIN_ReleaseLock(&g_src_cache_lock);
 
-//Dignastic on GetSrcFromIp() με verbose logging για να καταλάβουμε γιατί δεν βρίσκει source info για κάποια IPs (π.χ. τα frees)
+// 2) external resolve
+// Χρησιμοποιούμε image-relative offset, όχι absolute runtime PC
+char cmd[4096];
+snprintf(cmd, sizeof(cmd),
+"addr2line -f -C -e \"%s\" 0x%lx 2>/dev/null",
+imgPath.c_str(), (unsigned long)imgOff);
+
+FILE* fp = popen(cmd, "r");
+if (!fp) return false;
+
+char funcbuf[2048];
+char filebuf[4096];
+
+funcbuf[0] = '\0';
+filebuf[0] = '\0';
+
+if (!fgets(funcbuf, sizeof(funcbuf), fp)) {
+pclose(fp);
+return false;
+}
+if (!fgets(filebuf, sizeof(filebuf), fp)) {
+pclose(fp);
+return false;
+}
+pclose(fp);
+
+// trim trailing newline
+auto trim_newline = [](char* s) {
+size_t n = strlen(s);
+while (n > 0 && (s[n-1] == '\n' || s[n-1] == '\r')) {
+s[n-1] = '\0';
+--n;
+}
+};
+
+trim_newline(funcbuf);
+trim_newline(filebuf);
+
+// αναμενόμενο format: /path/file.c:123  ή  ??:?
+if (strcmp(filebuf, "??:?") == 0 || strcmp(filebuf, "??:0") == 0 || filebuf[0] == '\0') {
+// cache negative result για να μην ξανακαλείται συνέχεια
+PIN_GetLock(&g_src_cache_lock, 0);
+g_src_cache[key] = SrcLoc("", 0, 0);
+PIN_ReleaseLock(&g_src_cache_lock);
+return false;
+}
+
+char* colon = strrchr(filebuf, ':');
+if (!colon) {
+PIN_GetLock(&g_src_cache_lock, 0);
+g_src_cache[key] = SrcLoc("", 0, 0);
+PIN_ReleaseLock(&g_src_cache_lock);
+return false;
+}
+
+*colon = '\0';
+const char* lineStr = colon + 1;
+long parsedLine = strtol(lineStr, nullptr, 10);
+if (parsedLine <= 0) {
+PIN_GetLock(&g_src_cache_lock, 0);
+g_src_cache[key] = SrcLoc("", 0, 0);
+PIN_ReleaseLock(&g_src_cache_lock);
+return false;
+}
+
+file = filebuf;
+line = (INT32)parsedLine;
+col  = 0;
+
+PIN_GetLock(&g_src_cache_lock, 0);
+g_src_cache[key] = SrcLoc(file, line, col);
+PIN_ReleaseLock(&g_src_cache_lock);
+
+return true;
+}
+
+
 static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
 {
     file.clear();
@@ -303,10 +410,10 @@ static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT3
     col  = 0;
 
     if (ip == 0) {
-        if (KnobSrcDebug.Value() && logf) {
+        if (KnobSrcDebug.Value() && g_logf) {
             PIN_GetLock(&g_events_lock, 0);
-            fprintf(logf, "[SRCDBG] ip=0x0 -> skip\n");
-            fflush(logf);
+            fprintf(g_logf, "[SRCDBG] ip=0x0 -> skip\n");
+            fflush(g_logf);
             PIN_ReleaseLock(&g_events_lock);
         }
         return;
@@ -315,29 +422,137 @@ static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT3
     std::string imgName;
     ADDRINT imgOff = 0;
 
+    // ------------------------------------------------------------
+    // 1) Βρες image + offset για το exact ip
+    // ------------------------------------------------------------
     PIN_LockClient();
-
     IMG img = IMG_FindByAddress(ip);
     if (IMG_Valid(img)) {
         imgName = IMG_Name(img);
         imgOff  = ip - IMG_LowAddress(img);
     }
-
-    PIN_GetSourceLocation(ip, &col, &line, &file);
-
     PIN_UnlockClient();
 
-    if (KnobSrcDebug.Value() && logf) {
+    // ------------------------------------------------------------
+    // 2) Πρώτη προσπάθεια με Pin API στο exact ip
+    // ------------------------------------------------------------
+    PIN_LockClient();
+    PIN_GetSourceLocation(ip, &col, &line, &file);
+    PIN_UnlockClient();
+
+    if (!file.empty() && line > 0) {
+        if (KnobSrcDebug.Value() && g_logf) {
+            PIN_GetLock(&g_events_lock, 0);
+            fprintf(g_logf,
+                    "[SRCDBG] ip=%p img=%s off=0x%lx -> PIN exact -> %s:%d col=%d\n",
+                    (void*)ip,
+                    imgName.empty() ? "?" : imgName.c_str(),
+                    (unsigned long)imgOff,
+                    file.c_str(),
+                    (int)line,
+                    (int)col);
+            fflush(g_logf);
+            PIN_ReleaseLock(&g_events_lock);
+        }
+        return;
+    }
+
+    // ------------------------------------------------------------
+    // 3) Δεύτερη προσπάθεια με Pin API στο ip-1
+    //    Χρήσιμο γιατί πολλές φορές caller_ip είναι return address
+    // ------------------------------------------------------------
+    if (ip > 0) {
+        std::string file2;
+        INT32 line2 = 0, col2 = 0;
+
+        PIN_LockClient();
+        PIN_GetSourceLocation(ip - 1, &col2, &line2, &file2);
+        PIN_UnlockClient();
+
+        if (!file2.empty() && line2 > 0) {
+            file = file2;
+            line = line2;
+            col  = col2;
+
+            if (KnobSrcDebug.Value() && g_logf) {
+                PIN_GetLock(&g_events_lock, 0);
+                fprintf(g_logf,
+                        "[SRCDBG] ip=%p img=%s off=0x%lx -> PIN ip-1 -> %s:%d col=%d\n",
+                        (void*)ip,
+                        imgName.empty() ? "?" : imgName.c_str(),
+                        (unsigned long)imgOff,
+                        file.c_str(),
+                        (int)line,
+                        (int)col);
+                fflush(g_logf);
+                PIN_ReleaseLock(&g_events_lock);
+            }
+            return;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // 4) Fallback με addr2line στο exact image-relative offset
+    // ------------------------------------------------------------
+    if (!imgName.empty()) {
+        if (ResolveSrcWithAddr2line(imgName, imgOff, file, line, col)) {
+            if (KnobSrcDebug.Value() && g_logf) {
+                PIN_GetLock(&g_events_lock, 0);
+                fprintf(g_logf,
+                        "[SRCDBG] ip=%p img=%s off=0x%lx -> ADDR2LINE exact -> %s:%d\n",
+                        (void*)ip,
+                        imgName.c_str(),
+                        (unsigned long)imgOff,
+                        file.c_str(),
+                        (int)line);
+                fflush(g_logf);
+                PIN_ReleaseLock(&g_events_lock);
+            }
+            return;
+        }
+    }
+
+    // ------------------------------------------------------------
+    // 5) Τελική προσπάθεια: addr2line στο ip-1 offset
+    // ------------------------------------------------------------
+    if (ip > 0) {
+        std::string imgName2;
+        ADDRINT imgOff2 = 0;
+
+        PIN_LockClient();
+        IMG img2 = IMG_FindByAddress(ip - 1);
+        if (IMG_Valid(img2)) {
+            imgName2 = IMG_Name(img2);
+            imgOff2  = (ip - 1) - IMG_LowAddress(img2);
+        }
+        PIN_UnlockClient();
+
+        if (!imgName2.empty() && ResolveSrcWithAddr2line(imgName2, imgOff2, file, line, col)) {
+            if (KnobSrcDebug.Value() && g_logf) {
+                PIN_GetLock(&g_events_lock, 0);
+                fprintf(g_logf,
+                        "[SRCDBG] ip=%p img=%s off=0x%lx -> ADDR2LINE ip-1 -> %s:%d\n",
+                        (void*)ip,
+                        imgName2.c_str(),
+                        (unsigned long)imgOff2,
+                        file.c_str(),
+                        (int)line);
+                fflush(g_logf);
+                PIN_ReleaseLock(&g_events_lock);
+            }
+            return;
+        }
+    }
+
+    // failed
+    if (KnobSrcDebug.Value() && g_logf) {
         PIN_GetLock(&g_events_lock, 0);
-        fprintf(logf,
-                "[SRCDBG] ip=%p img=%s off=0x%lx -> file=%s line=%d col=%d\n",
+        fprintf(g_logf,
+                "[SRCDBG] ip=%p img=%s off=0x%lx -> unresolved\n",
                 (void*)ip,
                 imgName.empty() ? "?" : imgName.c_str(),
-                (unsigned long)imgOff,
-                file.empty() ? "?" : file.c_str(),
-                (int)line,
-                (int)col);
-        fflush(logf);
+                (unsigned long)imgOff);
+        fflush(g_logf);
         PIN_ReleaseLock(&g_events_lock);
     }
 }
@@ -355,13 +570,14 @@ static inline void PrintAlloc(THREADID tid,
     if (!tracef) return;
 
     fprintf(tracef,
-        "[ALLOC]    "
+        "T%u [ALLOC]    "
         "Region_start=%p    "
         "Size=%zu   "
         "Type=%s    "
         "Caller=%s:%d   "
         "Caller_IMG=%s+0x%lx    "
         "Caller_PC=%p\n",
+        (unsigned)tid,
         (void*)region_start,
         size,
         type ? type : "?",
@@ -384,14 +600,15 @@ static inline void PrintFreeKnown(THREADID tid,
     if (!tracef) return;
 
     fprintf(tracef,
-        "[FREE]     "
+        "T%u [FREE]     "
         "Region_start=%p    "
         "Region_Size=%zu    "
         "Type=%s    "
         "Free_ptr=%p    "
-        "Caller=%s:%d"
+        "Caller=%s:%d   "
         "Caller_IMG=%s+0x%lx    "
         "Caller_PC=%p\n",
+        (unsigned)tid,
         (void*)region_start,
         region_size,
         type ? type : "?",
@@ -414,11 +631,12 @@ static inline void PrintFreeUnknown(THREADID tid,
     if (!tracef) return;
 
     fprintf(tracef,
-        "[FREE - UNKNOWN]   "
+        "T%u [FREE - UNKNOWN]   "
         "Free_ptr=%p    "
         "Caller=%s:%d   "
         "Caller_IMG=%s+0x%lx    "
         "Caller_PC=%p\n",
+        (unsigned)tid,
         (void*)free_ptr,
         caller_file ? caller_file : "?", caller_line,
         caller_img ? caller_img : "?", caller_img_off,
@@ -438,12 +656,12 @@ static inline ThreadCtx* SafeCTX(THREADID tid, const char* who)
     ThreadCtx* tc = static_cast<ThreadCtx*>(PIN_GetThreadData(g_tls_key, tid));
     if (!tc || tc->magic != ThreadCtx::kMagic || tc->owner_tid != tid) {
         PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[TLS-ANOMALY] %s tid=%u tc=%p magic_ok=%d owner=%d\n",
+        if (g_logf) {
+            fprintf(g_logf, "[TLS-ANOMALY] %s tid=%u tc=%p magic_ok=%d owner=%d\n",
                     who, (unsigned)tid, (void*)tc,
                     (tc && tc->magic == ThreadCtx::kMagic),
                     tc ? (int)tc->owner_tid : -1);
-            fflush(logf);
+            fflush(g_logf);
         }
         PIN_ReleaseLock(&g_events_lock);
         return nullptr;
@@ -529,9 +747,9 @@ static BOOL OnSigUsr2(THREADID tid, INT32 sig, CONTEXT* ctxt,
 g_trace_memops = !g_trace_memops;
 
 PIN_GetLock(&g_events_lock, 0);
-if (logf) {
-fprintf(logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
-fflush(logf);
+if (g_logf) {
+fprintf(g_logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
+fflush(g_logf);
 }
 if (tracef) {
 fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
@@ -725,14 +943,14 @@ if (overlapFound) {
         fflush(eventsf);
     }
 
-    if (logf) {
-        fprintf(logf,
+    if (g_logf) {
+        fprintf(g_logf,
             "[ANOMALY] alloc_overlap new_start=%p new_size=%zu new_tag=%s "
             "overlap_start=%p overlap_size=%zu overlap_tag=%s @%s:%d (%s) pc=%p\n",
             (void*)r.start, r.size, r.tag.c_str(),
             (void*)ov.start, ov.size, ov.tag.c_str(),
             file ? file : "?", line, func ? func : "?", (void*)caller_ip);
-        fflush(logf);
+        fflush(g_logf);
     }
 
     PIN_ReleaseLock(&g_events_lock);
@@ -751,10 +969,10 @@ if (overlapFound) {
         fflush(tracef);
     }
 
-    if (logf) {
-        fprintf(logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s) pc=%p\n",
+    if (g_logf) {
+        fprintf(g_logf, "[HOOK ALLOC] p=%p size=%zu tag=%s @%s:%d (%s) pc=%p\n",
                 ptr, size, tag, file ? file : "?", line, func ? func : "?", (void*)caller_ip);
-        fflush(logf);
+        fflush(g_logf);
     }
     if (eventsf) {
         fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
@@ -808,12 +1026,12 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
         fflush(tracef);
     }
 
-    if (logf) {
-        fprintf(logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s pc=%p\n",
+    if (g_logf) {
+        fprintf(g_logf, "[HOOK FREE ] p=%p tag=%s @%s:%d (%s)%s pc=%p\n",
                 ptr, tag,
                 file ? file : "?", line, func ? func : "?",
                 known ? "" : " (UNKNOWN)",(void*)caller_ip) ;
-        fflush(logf);
+        fflush(g_logf);
     }
     if (eventsf) {
         if (known) {
@@ -926,10 +1144,10 @@ static VOID HookDummySites(IMG img)
                 PROTO_Free(pAlloc);
 
                 PIN_GetLock(&g_events_lock, 0);
-                if (logf) {
-                    fprintf(logf, "[HOOK] __memtrace_alloc_site in %s\n",
+                if (g_logf) {
+                    fprintf(g_logf, "[HOOK] __memtrace_alloc_site in %s\n",
                             IMG_Name(img).c_str());
-                    fflush(logf);
+                    fflush(g_logf);
                 }
                 PIN_ReleaseLock(&g_events_lock);
             }
@@ -963,10 +1181,10 @@ static VOID HookDummySites(IMG img)
                 PROTO_Free(pFree);
 
                 PIN_GetLock(&g_events_lock, 0);
-                if (logf) {
-                    fprintf(logf, "[HOOK] __memtrace_free_site in %s\n",
+                if (g_logf) {
+                    fprintf(g_logf, "[HOOK] __memtrace_free_site in %s\n",
                             IMG_Name(img).c_str());
-                    fflush(logf);
+                    fflush(g_logf);
                 }
                 PIN_ReleaseLock(&g_events_lock);
             }
@@ -1184,10 +1402,10 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
     UINT64 seq = 0;
     if (!ThreadCtx::CallocPush(tc, n, sz, caller_ip, seq)) {
         PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[ANOMALY] calloc stack overflow T%u n=%zu sz=%zu ip=%p top=%d\n",
+        if (g_logf) {
+            fprintf(g_logf, "[ANOMALY] calloc stack overflow T%u n=%zu sz=%zu ip=%p top=%d\n",
                     (unsigned)tid, n, sz, (void*)caller_ip, tc->pendingCallocTop);
-            fflush(logf);
+            fflush(g_logf);
         }
         PIN_ReleaseLock(&g_events_lock);
         return;
@@ -1195,10 +1413,10 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
 
     // (προαιρετικό) debug log
     PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        fprintf(logf, "[DBG] calloc PUSH T%u seq=%llu n=%zu sz=%zu top=%d ip=%p\n",
+    if (g_logf) {
+        fprintf(g_logf, "[DBG] calloc PUSH T%u seq=%llu n=%zu sz=%zu top=%d ip=%p\n",
                 (unsigned)tid, (unsigned long long)seq, n, sz, tc->pendingCallocTop, (void*)caller_ip);
-        fflush(logf);
+        fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -1210,10 +1428,10 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx::PendingCalloc p;
     if (!ThreadCtx::CallocPop(tc, p)) {
         PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[ANOMALY] calloc POP EMPTY T%u ret=%p\n",
+        if (g_logf) {
+            fprintf(g_logf, "[ANOMALY] calloc POP EMPTY T%u ret=%p\n",
                     (unsigned)tid, (void*)ret);
-            fflush(logf);
+            fflush(g_logf);
         }
         PIN_ReleaseLock(&g_events_lock);
         return;
@@ -1221,10 +1439,10 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
 
     // (προαιρετικό) debug log
     PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
-        fprintf(logf, "[DBG] calloc POP  T%u seq=%llu n=%zu sz=%zu top=%d ret=%p\n",
+    if (g_logf) {
+        fprintf(g_logf, "[DBG] calloc POP  T%u seq=%llu n=%zu sz=%zu top=%d ret=%p\n",
                 (unsigned)tid, (unsigned long long)p.seq, p.n, p.sz, tc->pendingCallocTop, (void*)ret);
-        fflush(logf);
+        fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
 
@@ -1345,13 +1563,13 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     size_t bytes = sz;   // requested only
     //debug msg
     PIN_GetLock(&g_events_lock, tid);
-    if (logf) {
+    if (g_logf) {
         std::string imgName; ADDRINT imgOff = 0;
         GetImgFromIp(caller_ip, imgName, imgOff);
-                fprintf(logf, "[MALLOC HIT] ret=%p req=%zu caller_pc=%p img=%s+0x%lx\n",
+                fprintf(g_logf, "[MALLOC HIT] ret=%p req=%zu caller_pc=%p img=%s+0x%lx\n",
                     (void*)ret, sz, (void*)caller_ip,
                     imgName.c_str(), (unsigned long)imgOff);
-        fflush(logf);
+        fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
     //end of debug msg
@@ -2255,7 +2473,7 @@ static VOID HookLibcAllocators(IMG img) {
 
     auto LogHook = [&](const char* what) {
         PIN_GetLock(&g_events_lock, 0);
-        if (logf) { fprintf(logf, "[HOOK] %s in %s\n", what, imgName.c_str()); fflush(logf); }
+        if (g_logf) { fprintf(g_logf, "[HOOK] %s in %s\n", what, imgName.c_str()); fflush(g_logf); }
         PIN_ReleaseLock(&g_events_lock);
     };
 
@@ -2529,9 +2747,9 @@ for (const char* sym : {
 if (!replaced) {
     // προαιρετικό log ότι δεν βρέθηκε calloc symbol
     PIN_GetLock(&g_events_lock, 0);
-    if (logf) {
-        fprintf(logf, "[WARN] Δεν βρέθηκε calloc για replace μέσα στο %s\n", imgName.c_str());
-        fflush(logf);
+    if (g_logf) {
+        fprintf(g_logf, "[WARN] Δεν βρέθηκε calloc για replace μέσα στο %s\n", imgName.c_str());
+        fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -2715,18 +2933,18 @@ static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
     if (tc) {
         // ✅ αν έμειναν pending calloc entries, τύπωσε τα
         PIN_GetLock(&g_events_lock, tid);
-        if (logf) {
-            fprintf(logf, "[FINI] T%u pendingCallocTop=%d\n",
+        if (g_logf) {
+            fprintf(g_logf, "[FINI] T%u pendingCallocTop=%d\n",
                     (unsigned)tid, tc->pendingCallocTop);
             for (int i = 0; i < tc->pendingCallocTop; i++) {
                 const auto& p = tc->pendingCallocStack[i];
-                fprintf(logf,
+                fprintf(g_logf,
                         "  [FINI-PENDING] i=%d seq=%llu n=%zu sz=%zu ip=%p\n",
                         i, (unsigned long long)p.seq,
                         (size_t)p.n, (size_t)p.sz,
                         (void*)p.callerIp);
             }
-            fflush(logf);
+            fflush(g_logf);
         }
         PIN_ReleaseLock(&g_events_lock);
 
@@ -2749,9 +2967,9 @@ static VOID Fini(INT32, VOID*) {
         fclose(eventsf);
         eventsf = nullptr;
     }
-    if (logf) {
-        fclose(logf);
-        logf = nullptr;
+    if (g_logf) {
+        fclose(g_logf);
+        g_logf = nullptr;
     }
     if (g_pMalloc) { PROTO_Free(g_pMalloc); g_pMalloc = nullptr; }
 if (g_pFree) { PROTO_Free(g_pFree); g_pFree = nullptr; }
@@ -2776,17 +2994,18 @@ int main(int argc, char* argv[]) {
     PIN_InitLock(&g_regions_lock);
     PIN_InitLock(&g_events_lock);
     PIN_InitLock(&g_hook_lock);
+    PIN_InitLock(&g_src_cache_lock);
 
     g_tls_key = PIN_CreateThreadDataKey(nullptr);
 
     // ΝΕΟ: Άνοιξε τα αρχεία ΠΡΙΝ το ParseProcMaps
-    logf    = fopen("pintool.log", "w");
+    g_logf    = fopen("pintool.log", "w");
     eventsf = fopen("pinatrace.events", "w");
     tracef  = fopen("pinatrace.out", "w");
 
-    if (logf) {
-        fprintf(logf, "[START] pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
-        fflush(logf);
+    if (g_logf) {
+        fprintf(g_logf, "[START] pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        fflush(g_logf);
     }
     if (tracef) {
         fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
