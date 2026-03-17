@@ -25,6 +25,12 @@ using std::string;
 KNOB<BOOL> KnobUseLibcHooks(KNOB_MODE_WRITEONCE, "pintool",
     "use_libc_hooks", "0", "Also instrument malloc/calloc/realloc/free in libc.");
 
+
+// knob gia na anoigokleino to diagnostic log stin GetSrcFromIp()
+KNOB<BOOL> KnobSrcDebug(KNOB_MODE_WRITEONCE, "pintool",
+    "src_debug", "0", "Enable verbose source-location diagnostics.");
+
+    
 // --------------------------- Region map --------------------------
 struct Region {
     ADDRINT start;  //arxiki diefthinsi
@@ -273,7 +279,7 @@ static inline void GetImgFromIp(ADDRINT ip, std::string &imgName, ADDRINT &imgOf
 }
 
 // Helper function gia to GetSourceLocation oste na doume apo pou proerxonde ta frees
-static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
+/*static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
 {
     file.clear();
     line = 0;
@@ -287,6 +293,53 @@ static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT3
     PIN_UnlockClient();
 
     // αν δεν βρει info -> file="" line=0 col=0
+}*/
+
+//Dignastic on GetSrcFromIp() με verbose logging για να καταλάβουμε γιατί δεν βρίσκει source info για κάποια IPs (π.χ. τα frees)
+static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT32 &col)
+{
+    file.clear();
+    line = 0;
+    col  = 0;
+
+    if (ip == 0) {
+        if (KnobSrcDebug.Value() && logf) {
+            PIN_GetLock(&g_events_lock, 0);
+            fprintf(logf, "[SRCDBG] ip=0x0 -> skip\n");
+            fflush(logf);
+            PIN_ReleaseLock(&g_events_lock);
+        }
+        return;
+    }
+
+    std::string imgName;
+    ADDRINT imgOff = 0;
+
+    PIN_LockClient();
+
+    IMG img = IMG_FindByAddress(ip);
+    if (IMG_Valid(img)) {
+        imgName = IMG_Name(img);
+        imgOff  = ip - IMG_LowAddress(img);
+    }
+
+    PIN_GetSourceLocation(ip, &col, &line, &file);
+
+    PIN_UnlockClient();
+
+    if (KnobSrcDebug.Value() && logf) {
+        PIN_GetLock(&g_events_lock, 0);
+        fprintf(logf,
+                "[SRCDBG] ip=%p img=%s off=0x%lx -> file=%s line=%d col=%d\n",
+                (void*)ip,
+                imgName.empty() ? "?" : imgName.c_str(),
+                (unsigned long)imgOff,
+                file.empty() ? "?" : file.c_str(),
+                (int)line,
+                (int)col);
+        fflush(logf);
+        PIN_ReleaseLock(&g_events_lock);
+    }
 }
 
 // -------------------------- Pretty printers (ALLOC/FREE only) --------------------------
