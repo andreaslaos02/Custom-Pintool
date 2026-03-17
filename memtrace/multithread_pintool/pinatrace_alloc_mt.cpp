@@ -619,7 +619,6 @@ static inline void PrintFreeKnown(THREADID tid,
     );
     fflush(tracef);
 }
-
 // FREE (unknown)
 static inline void PrintFreeUnknown(THREADID tid,
     ADDRINT free_ptr,
