@@ -1,7 +1,7 @@
 //version pou afine ta size=0  na katagrafoun alla ipopsies oti to size=0 einai lathos afou gononde load/stores se afto
 
 //aftos o kwdikas exei filters gia na perni ta alloc tou memcached alla oxi ta load&stores
-
+// -
 #include "pin.H"
 #include <map>
 #include <string>
@@ -2220,7 +2220,7 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_PROTOTYPE, g_pCalloc,
             IARG_CONTEXT,
             IARG_THREAD_ID,
-            IARG_ORIG_FUNCPTR,           // ✅ δίνει το original στον wrapper
+            IARG_ORIG_FUNCPTR,           // dinei to original wrapper
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
             IARG_RETURN_IP,
