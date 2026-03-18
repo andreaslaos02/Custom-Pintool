@@ -426,7 +426,7 @@ static inline void GetSrcFromIp(ADDRINT ip, std::string &file, INT32 &line, INT3
     ADDRINT imgOff = 0;
 
     // ------------------------------------------------------------
-    // 1) Βρες image + offset για το exact ip
+    // 1) Βρες image + offset για το exact ip apo pin API
     // ------------------------------------------------------------
     PIN_LockClient();
     IMG img = IMG_FindByAddress(ip);
