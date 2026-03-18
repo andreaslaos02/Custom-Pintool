@@ -202,3 +202,23 @@ cd ~/memcache-perf
 ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
 
 pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }
+
+
+
+
+
+
+SIMULATOR
+
+Debug-run:
+  1. Mesa ston fakelo:
+
+    cd ~/CacheSimulator/build-debug
+    ./bin/cachesim ../traces/whatever.txt
+  
+  2. eksw apo ton fakelo:
+    cd ~/CacheSimulator
+    ./build-debug/bin/cachesim traces/whatever.txt
+
+Release-run:
+~/CacheSimulator/build-release/bin/cachesim
