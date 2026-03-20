@@ -754,7 +754,7 @@ fprintf(g_logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(g_logf);
 }
 if (tracef) {
-fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
+//fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(tracef);
 }
 PIN_ReleaseLock(&g_events_lock);
@@ -2987,7 +2987,7 @@ static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
 static VOID Fini(INT32, VOID*) {
     PIN_GetLock(&g_events_lock, 0);
     if (tracef) {
-        fprintf(tracef, "#eof\n");
+        //fprintf(tracef, "#eof\n");
         fclose(tracef);
         tracef = nullptr;
     }
@@ -3037,8 +3037,8 @@ int main(int argc, char* argv[]) {
         fflush(g_logf);
     }
     if (tracef) {
-        fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
-        fprintf(tracef, "#START pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
+        //fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
+        //fprintf(tracef, "#START pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
         fflush(tracef);
     }
 
