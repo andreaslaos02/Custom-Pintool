@@ -348,3 +348,7 @@ python3 /home/alaos002/Simulator/join_script.py
 
 Aggregation Script:
 python3 /home/alaos002/Simulator/aggregation_script.py
+
+
+Master Script:
+python3 /home/alaos002/Simulator/run_full_pipeline.py
