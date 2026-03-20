@@ -229,4 +229,122 @@ DineroIv
 ------------------------------------------------------------------------------------------------------------------------------------
 
 Input:
-python3 /home/alaos002/Simulator/Input_Script.py
+  python3 /home/alaos002/Simulator/Input_Script.py
+
+Run simulator: (output in: dineroIV-debug/per_access_results.csv)
+  cd ~/Simulator/dineroIV-debug
+
+  -> write-through
+    ./dineroIV -informat D -l1-dsize 65536 -l1-dbsize 64 -l1-dassoc 8 -l1-dwalloc a -l1-dwback n < "/home/alaos002/Simulator/Input trace/dinero_input.trace"
+    
+  
+  -> write-back
+    ./dineroIV -informat D -l1-dsize 65536 -l1-dbsize 64 -l1-dassoc 8 -l1-dwalloc a -l1-dwback a < "/home/alaos002/Simulator/Input trace/dinero_input.trace"
+
+-informat D
+
+Καθορίζει τη μορφή του input trace.
+
+Εναλλακτικές:
+	•	d → traditional din format
+	•	D → extended din format
+	•	p → pixie 32-bit format
+	•	P → pixie 64-bit format
+	•	b → binary format
+
+Για σένα:
+	•	D = σωστό, γιατί το trace σου είναι της μορφής r/w address size
+
+⸻
+
+-l1-dsize 65536
+
+Καθορίζει το συνολικό μέγεθος της cache σε bytes.
+
+Εναλλακτικές τιμές:
+	•	32768 → 32KB
+	•	65536 → 64KB
+	•	262144 → 256KB
+	•	1048576 → 1MB
+
+Τι σημαίνει:
+	•	μεγαλύτερη cache → λιγότερα capacity misses
+	•	μικρότερη cache → περισσότερα capacity misses
+
+⸻
+
+-l1-dbsize 64
+
+Καθορίζει το block size, δηλαδή το μέγεθος του cache line σε bytes.
+
+Εναλλακτικές τιμές:
+	•	16 → 16 bytes
+	•	32 → 32 bytes
+	•	64 → 64 bytes
+	•	128 → 128 bytes
+
+Τι σημαίνει:
+	•	μικρό block → λιγότερη άχρηστη μεταφορά, αλλά ίσως περισσότερα misses
+	•	μεγάλο block → καλύτερη spatial locality, αλλά πιθανό pollution
+
+⸻
+
+-l1-dassoc 8
+
+Καθορίζει την associativity της cache.
+
+Εναλλακτικές τιμές:
+	•	1 → direct-mapped
+	•	2 → 2-way set associative
+	•	4 → 4-way
+	•	8 → 8-way
+	•	μεγαλύτερο → πιο associative cache
+
+Τι σημαίνει:
+	•	μικρό assoc → περισσότερα conflict misses
+	•	μεγάλο assoc → λιγότερα conflict misses
+
+⸻
+
+-l1-dwalloc a
+
+Καθορίζει την write-allocate policy.
+
+Εναλλακτικές τιμές:
+	•	a → always write allocate
+	•	n → never write allocate
+	•	f → no-fetch on write allocate
+
+Τι σημαίνει:
+	•	a → σε write miss, το block μπαίνει στην cache
+	•	n → σε write miss, δεν μπαίνει στην cache
+	•	f → γίνεται allocate αλλά χωρίς πλήρες fetch του block
+
+⸻
+
+-l1-dwback n
+
+Καθορίζει την write-back / write-through policy.
+
+Εναλλακτικές τιμές:
+	•	a → write-back
+	•	n → write-through
+	•	f → no-fetch write-back variant
+
+Τι σημαίνει:
+	•	a → οι writes μένουν στην cache και γράφονται αργότερα στη μνήμη
+	•	n → κάθε write πάει αμέσως και στη μνήμη
+	•	f → ειδική παραλλαγή no-fetch policy
+
+Για σένα:
+	•	n = write-through, που είναι αυτό που θέλεις
+
+
+
+
+JOIN script:
+python3 /home/alaos002/Simulator/join_script.py
+
+
+Aggregation Script:
+python3 /home/alaos002/Simulator/aggregation_script.py
