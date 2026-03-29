@@ -33,6 +33,12 @@ KNOB<BOOL> KnobUseLibcHooks(KNOB_MODE_WRITEONCE, "pintool",
 KNOB<BOOL> KnobSrcDebug(KNOB_MODE_WRITEONCE, "pintool",
     "src_debug", "0", "Enable verbose source-location diagnostics.");
 
+// knob for untracked load/stores
+KNOB<BOOL> KnobTraceUntracked(KNOB_MODE_WRITEONCE, "pintool",
+    "trace_untracked", "0",
+    "Also log load/store accesses that do not belong to any tracked region.");
+
+
     
 // --------------------------- Region map --------------------------
 struct Region {
@@ -143,7 +149,21 @@ static VOID InitAllocatorProtosOnce() {
         PIN_PARG(void**), PIN_PARG(size_t), PIN_PARG(size_t), PIN_PARG_END());
 }
 
+// Adding thread role to the thread context, so we can filter events based on it (πχ μόνο worker threads)
+enum ThreadRole {
+    ROLE_UNKNOWN = 0,
+    ROLE_WORKER,
+    ROLE_OTHER
+};
 
+static inline const char* ThreadRoleStr(ThreadRole r)
+{
+    switch (r) {
+        case ROLE_WORKER: return "WORKER";
+        case ROLE_OTHER:  return "OTHER";
+        default:          return "UNKNOWN";
+    }
+}
 
 
 // Thread-local context: per-thread state
@@ -153,6 +173,10 @@ struct ThreadCtx {
     static constexpr UINT64 kMagic = 0xC0FFEE1234ABCDEFULL;
     UINT64 magic;
     THREADID owner_tid;
+    // gia na kathorisw to working thread
+    ThreadRole role;
+    pid_t os_tid;
+    
     // Pending alloc metadata (για __memtrace_alloc_site)
     bool        hasPendingAlloc;
     size_t      pendingSize;
@@ -166,11 +190,6 @@ struct ThreadCtx {
         bool   hasPendingMalloc;
         size_t pendingMallocSize;
         ADDRINT pendingMallocCallerIp;
-    
-        /*bool   hasPendingCalloc;
-        size_t pendingCallocN;
-        size_t pendingCallocSz;
-        ADDRINT pendingCallocCallerIp;*/
 
         struct PendingCalloc {
             size_t  n;
@@ -232,8 +251,10 @@ static inline bool CallocPop(ThreadCtx* tc, ThreadCtx::PendingCalloc& out)
         :out(nullptr),
          inCalloc(0),
           
-          magic(kMagic),
-          owner_tid(INVALID_THREADID),
+         magic(kMagic),
+         owner_tid(INVALID_THREADID),
+         role(ROLE_UNKNOWN),
+         os_tid(0),
           
           hasPendingAlloc(false),
           pendingSize(0),
@@ -284,6 +305,7 @@ static inline bool CallocPop(ThreadCtx* tc, ThreadCtx::PendingCalloc& out)
           pendingMremapCallerIp(0)
     {}
 };
+
 static TLS_KEY g_tls_key;
 
 // Helper gia IMG name
@@ -670,6 +692,27 @@ static inline ThreadCtx* SafeCTX(THREADID tid, const char* who)
     }
     return tc;
 }
+
+// Markaro to worker thread
+static VOID MarkWorkerThread(THREADID tid)
+{
+    ThreadCtx* tc = SafeCTX(tid, "MarkWorkerThread");
+    if (!tc) return;
+
+    if (tc->role != ROLE_WORKER) {
+        tc->role = ROLE_WORKER;
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[THREAD_ROLE] pin_tid=%u os_tid=%d role=WORKER\n",
+                    (unsigned)tid, (int)tc->os_tid);
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}
+
 // ------------------------- Lookup helper -------------------------
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
 
@@ -770,9 +813,18 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     const ADDRINT ipA = (ADDRINT)ip;
     const ADDRINT a   = (ADDRINT)ea;
 
+    // Gia na tipono role
+    ThreadCtx* tc = SafeCTX(tid, "RecordRead");
+    if (!tc) return;
+
+    /*Region snap;
+    size_t off = 0;
+    if (!FindRegionWithOff(a, snap, off)) return;*/
+
     Region snap;
     size_t off = 0;
-    if (!FindRegionWithOff(a, snap, off)) return;
+    bool found = FindRegionWithOff(a, snap, off);
+    if (!found && !KnobTraceUntracked.Value()) return;
 
     if (bytes == 0) bytes = 1;
 
@@ -781,7 +833,7 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     ADDRINT imgOff = 0;
     GetImgFromIp(ipA, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str(); // ή imgName.c_str() για full path
-
+/*
     if (off + (size_t)bytes > snap.size) {
         PIN_GetLock(&g_events_lock, tid);
         fprintf(tracef,
@@ -795,12 +847,6 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     }
 
     PIN_GetLock(&g_events_lock, tid);
-    /*fprintf(tracef,
-        "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
-        (unsigned)tid, (void*)ipA,
-        (void*)snap.start, (void*)a,
-        snap.tag.c_str(), off, bytes,
-        imgC, (unsigned long)imgOff);*/
         fprintf(tracef,
             "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
             (unsigned)tid, (void*)ipA,
@@ -808,10 +854,61 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
             snap.tag.c_str(), off, bytes,
             imgC, (unsigned long)imgOff,
             snap.alloc_file.c_str(), (int)snap.alloc_line);
+    PIN_ReleaseLock(&g_events_lock);*/
+
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (!found) {
+        /*fprintf(tracef,
+            "T%u %p: load  full:%p UNTRACKED size=%u ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)a, bytes,
+            imgC, (unsigned long)imgOff);*/
+            fprintf(tracef,
+                "T%u ROLE=%s OS_TID=%d %p: load  full:%p UNTRACKED size=%u ip_img=%s+0x%lx\n",
+                (unsigned)tid,
+                ThreadRoleStr(tc->role),
+                (int)tc->os_tid,
+                (void*)ipA,
+                (void*)a, bytes,
+                imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    if (off + (size_t)bytes > snap.size) {
+        fprintf(tracef,
+            "T%u %p: OOB_LOAD base:%p full:%p tag=%s off=%zu size=%u region_size=%zu ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes, snap.size,
+            imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    /*fprintf(tracef,
+        "T%u %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+        (unsigned)tid, (void*)ipA,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes,
+        imgC, (unsigned long)imgOff,
+        snap.alloc_file.c_str(), (int)snap.alloc_line);*/
+        fprintf(tracef,
+            "T%u ROLE=%s OS_TID=%d %p: load  base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+            (unsigned)tid,
+            ThreadRoleStr(tc->role),
+            (int)tc->os_tid,
+            (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes,
+            imgC, (unsigned long)imgOff,
+            snap.alloc_file.c_str(), (int)snap.alloc_line);
+
     PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
+/*static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 {
     if (!tracef) return;
     if (!g_trace_memops) return;
@@ -843,12 +940,6 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     }
 
     PIN_GetLock(&g_events_lock, tid);
-    /*fprintf(tracef,
-        "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx\n",
-        (unsigned)tid, (void*)ipA,
-        (void*)snap.start, (void*)a,
-        snap.tag.c_str(), off, bytes,
-        imgC, (unsigned long)imgOff);*/
         fprintf(tracef,
             "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
             (unsigned)tid, (void*)ipA,
@@ -856,6 +947,80 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
             snap.tag.c_str(), off, bytes,
             imgC, (unsigned long)imgOff,
             snap.alloc_file.c_str(), (int)snap.alloc_line);
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
+{
+    if (!tracef) return;
+    if (!g_trace_memops) return;
+
+    const ADDRINT ipA = (ADDRINT)ip;
+    const ADDRINT a   = (ADDRINT)ea;
+
+    ThreadCtx* tc = SafeCTX(tid, "RecordWrite");
+    if (!tc) return;
+
+    Region snap;
+    size_t off = 0;
+    bool found = FindRegionWithOff(a, snap, off);
+    if (!found && !KnobTraceUntracked.Value()) return;
+
+    if (bytes == 0) bytes = 1;
+
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(ipA, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    PIN_GetLock(&g_events_lock, tid);
+
+    if (!found) {
+        /*fprintf(tracef,
+            "T%u %p: store full:%p UNTRACKED size=%u ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)a, bytes,
+            imgC, (unsigned long)imgOff);*/
+            fprintf(tracef,
+                "T%u ROLE=%s OS_TID=%d %p: store full:%p UNTRACKED size=%u ip_img=%s+0x%lx\n",
+                (unsigned)tid,
+                ThreadRoleStr(tc->role),
+                (int)tc->os_tid,
+                (void*)ipA,
+                (void*)a, bytes,
+                imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    if (off + (size_t)bytes > snap.size) {
+        fprintf(tracef,
+            "T%u %p: OOB_STORE base:%p full:%p tag=%s off=%zu size=%u region_size=%zu ip_img=%s+0x%lx\n",
+            (unsigned)tid, (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes, snap.size,
+            imgC, (unsigned long)imgOff);
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    /*fprintf(tracef,
+        "T%u %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+        (unsigned)tid, (void*)ipA,
+        (void*)snap.start, (void*)a,
+        snap.tag.c_str(), off, bytes,
+        imgC, (unsigned long)imgOff,
+        snap.alloc_file.c_str(), (int)snap.alloc_line);*/
+        fprintf(tracef,
+            "T%u ROLE=%s OS_TID=%d %p: store base:%p full:%p tag=%s off=%zu size=%u ip_img=%s+0x%lx ALLOC_CALLER=%s:%d\n",
+            (unsigned)tid,
+            ThreadRoleStr(tc->role),
+            (int)tc->os_tid,
+            (void*)ipA,
+            (void*)snap.start, (void*)a,
+            snap.tag.c_str(), off, bytes,
+            imgC, (unsigned long)imgOff,
+            snap.alloc_file.c_str(), (int)snap.alloc_line);
+
     PIN_ReleaseLock(&g_events_lock);
 }
 
@@ -891,9 +1056,7 @@ static VOID Instruction(INS ins, VOID*) {
                     IARG_END);
         }
         if (INS_MemoryOperandIsWritten(ins, i)) {
-            /*INS_InsertPredicatedCall(
-                ins, IPOINT_BEFORE, AFUNPTR(RecordWrite),
-                IARG_THREAD_ID, IARG_INST_PTR, IARG_MEMORYOP_EA, i, IARG_END);*/
+            
                 INS_InsertPredicatedCall(
                     ins, IPOINT_BEFORE, AFUNPTR(RecordWrite),
                     IARG_THREAD_ID,
@@ -2468,9 +2631,41 @@ static VOID AfterStrndup(ADDRINT ret, const char* s, size_t n, ADDRINT caller_ip
     size_t sz = actual + 1;
     AfterMalloc(ret, sz, caller_ip);
 }
-//claude:
-// brk function
-// claude
+
+// hookaro to worker_libevent pu einai i function sto memcached pou dimiourgei ta workers sto thread.c arxeio tou memcached 
+static VOID HookMemcachedThreadRoles(IMG img)
+{
+    // Μόνο στο main executable (memcached)
+    if (!IMG_IsMainExecutable(img)) return;
+
+    RTN r = RTN_FindByName(img, "worker_libevent");
+    if (!RTN_Valid(r)) {
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf, "[WARN] worker_libevent not found in %s\n",
+                    IMG_Name(img).c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    if (!TryMarkHooked(r)) return;
+
+    RTN_Open(r);
+    RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(MarkWorkerThread),
+        IARG_THREAD_ID,
+        IARG_END);
+    RTN_Close(r);
+
+    PIN_GetLock(&g_events_lock, 0);
+    if (g_logf) {
+        fprintf(g_logf, "[HOOK] worker_libevent role marker in %s\n",
+                IMG_Name(img).c_str());
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
 
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
 static VOID HookLibcAllocators(IMG img) {
@@ -2946,15 +3141,33 @@ for (const char* sym : { "strndup", "__strndup", "__GI___strndup" }) {
 static VOID ImageLoad(IMG img, VOID*) {
     HookDummySites(img);       // your __memtrace_* if present
     HookLibcAllocators(img);   // optional libc hooks (knob)
+    HookMemcachedThreadRoles(img); // worker role labeling
 }
 
 // ----------------------- Thread lifecycle ------------------------
-// ΔΕΝ ανοίγουμε πια per-thread trace files, μόνο TLS context
-static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
+
+/*static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
     ThreadCtx* tc = new ThreadCtx();
     //tc->out = nullptr; // δεν χρησιμοποιείται πλέον
     tc->owner_tid = tid;
     PIN_SetThreadData(g_tls_key, tc, tid);
+}*/
+// Vazw sto ThreadStart to os_tid kai το role, και logarw sto thread start. 
+static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
+    ThreadCtx* tc = new ThreadCtx();
+    tc->owner_tid = tid;
+    tc->os_tid = PIN_GetTid();
+    tc->role = ROLE_OTHER;   // default: non-worker μέχρι να αποδειχθεί worker
+    PIN_SetThreadData(g_tls_key, tc, tid);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[THREAD_START] pin_tid=%u os_tid=%d role=%s\n",
+                (unsigned)tid, (int)tc->os_tid, ThreadRoleStr(tc->role));
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 }
 
 static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
@@ -2976,7 +3189,16 @@ static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
             fflush(g_logf);
         }
         PIN_ReleaseLock(&g_events_lock);
+        // thread summary
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            fprintf(g_logf,
+            "[THREAD_FINI] pin_tid=%u os_tid=%d role=%s\n",
+            (unsigned)tid, (int)tc->os_tid, ThreadRoleStr(tc->role));
+        fflush(g_logf);
+        }
 
+PIN_ReleaseLock(&g_events_lock);
         delete tc;
         PIN_SetThreadData(g_tls_key, nullptr, tid);
     }
