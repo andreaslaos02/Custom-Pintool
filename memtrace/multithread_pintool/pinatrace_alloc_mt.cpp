@@ -55,9 +55,14 @@ struct Region {
 // Global region map (keyed by start)
 static std::map<ADDRINT, Region> g_regions;     //taksinomimeno map kata start
 
+// Per-thread stack regions
+static std::unordered_map<THREADID, Region> g_stack_regions;
+
 // Locks
 static PIN_LOCK g_regions_lock;  // protects g_regions
 static PIN_LOCK g_events_lock;   // protects events/log/trace global files
+
+static PIN_LOCK g_stack_lock;    // protects g_stack_regions
 
 // -------------------------- Output files -------------------------
 static FILE* g_logf    = nullptr;          // pintool.log (hooks summary)
@@ -70,6 +75,11 @@ static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
 // ---------------- Hook dedupe (avoid double-instrumenting aliased RTNs) ----------------
 static std::set<ADDRINT> g_hooked_rtn_addrs;
 static PIN_LOCK g_hook_lock;
+
+//Global counters gia symbols_29/3
+/*static std::unordered_map<std::string, UINT64> g_installed_symbols;
+static std::unordered_map<std::string, UINT64> g_called_symbols;
+static PIN_LOCK g_stats_lock;*/
 
 // ---------------------- Source resolve cache ----------------------
 struct SrcLoc {
@@ -104,6 +114,7 @@ static PROTO g_pPvalloc = nullptr;
 static PROTO g_pPosixMemalign = nullptr;
 
 static AFUNPTR g_origCalloc = nullptr;
+static AFUNPTR g_origRealloc = nullptr;
 
 static VOID InitAllocatorProtosOnce() {
     if (g_pMalloc) return; // already initialized
@@ -170,6 +181,7 @@ static inline const char* ThreadRoleStr(ThreadRole r)
 struct ThreadCtx {
     FILE* out;  // ΔΕΝ χρησιμοποιείται πλέον για αρχεία
     int inCalloc;
+    int inRealloc;
     static constexpr UINT64 kMagic = 0xC0FFEE1234ABCDEFULL;
     UINT64 magic;
     THREADID owner_tid;
@@ -249,7 +261,8 @@ static inline bool CallocPop(ThreadCtx* tc, ThreadCtx::PendingCalloc& out)
 }
     ThreadCtx()
         :out(nullptr),
-         inCalloc(0),
+        inCalloc(0),
+        inRealloc(0),
           
          magic(kMagic),
          owner_tid(INVALID_THREADID),
@@ -716,6 +729,7 @@ static VOID MarkWorkerThread(THREADID tid)
 // ------------------------- Lookup helper -------------------------
 static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off);
 
+static bool FindStackRegionWithOff(THREADID tid, ADDRINT a, Region &out, size_t &off);
 
 
 // Helper
@@ -727,6 +741,91 @@ static bool TryMarkHooked(RTN r)
     PIN_ReleaseLock(&g_hook_lock);
     return fresh; // true => first time we see this routine address
 }
+/*
+static bool TryMarkHooked(RTN r)
+{
+    const ADDRINT a = RTN_Address(r);
+    const std::string rawName = RTN_Name(r);
+
+    PIN_GetLock(&g_hook_lock, 0);
+    bool fresh = g_hooked_rtn_addrs.insert(a).second;
+    PIN_ReleaseLock(&g_hook_lock);
+
+    PIN_GetLock(&g_events_lock, 0);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[HOOK_CHECK] symbol=%s addr=%p result=%s\n",
+                rawName.c_str(),
+                (void*)a,
+                fresh ? "HOOKED_FIRST_TIME" : "ALREADY_HOOKED");
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    return fresh;
+}*/
+
+
+// Helper gia ta counters ton symbols_29/3
+/*static inline void BumpInstalledSymbol(const std::string& sym)
+{
+    PIN_GetLock(&g_stats_lock, 0);
+    g_installed_symbols[sym]++;
+    PIN_ReleaseLock(&g_stats_lock);
+}*/
+
+/*static inline void BumpCalledSymbol(const std::string& sym)
+{
+    PIN_GetLock(&g_stats_lock, 0);
+    g_called_symbols[sym]++;
+    PIN_ReleaseLock(&g_stats_lock);
+}
+
+static VOID PrintSymbolCountersSummary()
+{
+    if (!g_logf) return;
+
+    PIN_GetLock(&g_stats_lock, 0);
+    PIN_GetLock(&g_events_lock, 0);
+
+    fprintf(g_logf, "\n========== SYMBOL HOOK SUMMARY ==========\n");
+
+    // Πρώτα τύπωσε όλα τα installed symbols
+    for (const auto& kv : g_installed_symbols) {
+        const std::string& sym = kv.first;
+        UINT64 installed = kv.second;
+
+        UINT64 called = 0;
+        auto it = g_called_symbols.find(sym);
+        if (it != g_called_symbols.end()) {
+            called = it->second;
+        }
+
+        fprintf(g_logf,
+                "[SYMBOL] %-24s installed=%llu called=%llu\n",
+                sym.c_str(),
+                (unsigned long long)installed,
+                (unsigned long long)called);
+    }
+
+    // Τύπωσε και όσα κλήθηκαν αλλά για κάποιο λόγο δεν υπήρχαν στο installed map
+    for (const auto& kv : g_called_symbols) {
+        const std::string& sym = kv.first;
+        if (g_installed_symbols.find(sym) != g_installed_symbols.end()) continue;
+
+        fprintf(g_logf,
+                "[SYMBOL] %-24s installed=0 called=%llu\n",
+                sym.c_str(),
+                (unsigned long long)kv.second);
+    }
+
+    fprintf(g_logf, "=========================================\n");
+    fflush(g_logf);
+
+    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_stats_lock);
+}*/
+
 
 //helper
 static inline std::string BaseSym(std::string n) {
@@ -824,7 +923,13 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     Region snap;
     size_t off = 0;
     bool found = FindRegionWithOff(a, snap, off);
+    //if (!found && !KnobTraceUntracked.Value()) return;
+    if (!found) {
+        found = FindStackRegionWithOff(tid, a, snap, off);
+    }
+
     if (!found && !KnobTraceUntracked.Value()) return;
+
 
     if (bytes == 0) bytes = 1;
 
@@ -963,7 +1068,13 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     Region snap;
     size_t off = 0;
     bool found = FindRegionWithOff(a, snap, off);
+    //if (!found && !KnobTraceUntracked.Value()) return;
+    if (!found) {
+        found = FindStackRegionWithOff(tid, a, snap, off);
+    }
+
     if (!found && !KnobTraceUntracked.Value()) return;
+
 
     if (bytes == 0) bytes = 1;
 
@@ -1376,6 +1487,56 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip);
 static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip);
 static VOID AfterReallocarray(ADDRINT ret, ADDRINT oldp, size_t nmemb, size_t elemsz, ADDRINT caller_ip);
 
+static VOID* Realloc_Replacement(CONTEXT* ctxt, THREADID tid,
+    AFUNPTR orig,
+    ADDRINT oldp, size_t sz, ADDRINT caller_ip)
+{
+    //BumpCalledSymbol("realloc_replacement");
+
+    VOID* ret = nullptr;
+    ThreadCtx* tc = SafeCTX(tid, "Realloc_Replacement");
+    if (tc) tc->inRealloc++;
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] Realloc_Replacement BEFORE tid=%u oldp=%p sz=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)oldp,
+                sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    PIN_CallApplicationFunction(
+        ctxt, tid, CALLINGSTD_DEFAULT,
+        orig, nullptr,
+        PIN_PARG(void*), &ret,
+        PIN_PARG(void*), (void*)oldp,
+        PIN_PARG(size_t), sz,
+        PIN_PARG_END()
+    );
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] Realloc_Replacement AFTER  tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
+                (unsigned)tid,
+                ret,
+                (void*)oldp,
+                sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    AfterRealloc((ADDRINT)ret, oldp, sz, caller_ip);
+    if (tc) tc->inRealloc--;
+
+    return ret;
+}
+
 //last change
 /*
 enum class MunmapActionKind {
@@ -1628,7 +1789,7 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     AfterCalloc(ret, p.n, p.sz, p.callerIp);
 }
 
-static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
+/*static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
     //ThreadCtx* tc = CTX(tid);
     ThreadCtx* tc = SafeCTX(tid, "BeforeReallocTLS");
     if (!tc) return;
@@ -1636,13 +1797,60 @@ static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT call
     tc->pendingReallocOldp = oldp;
     tc->pendingReallocSz = sz;
     tc->pendingReallocCallerIp = caller_ip;
+}*/
+static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
+    //BumpCalledSymbol("realloc_family");
+
+    ThreadCtx* tc = SafeCTX(tid, "BeforeReallocTLS");
+    if (!tc) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] BeforeReallocTLS tid=%u oldp=%p sz=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)oldp,
+                sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    tc->hasPendingRealloc = true;
+    tc->pendingReallocOldp = oldp;
+    tc->pendingReallocSz = sz;
+    tc->pendingReallocCallerIp = caller_ip;
 }
 
-static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
+/*static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
     //ThreadCtx* tc = CTX(tid);
     ThreadCtx* tc = SafeCTX(tid, "AfterReallocTLS");
     if (!tc || !tc->hasPendingRealloc) return;
     AfterRealloc(ret, tc->pendingReallocOldp, tc->pendingReallocSz, tc->pendingReallocCallerIp);
+    tc->hasPendingRealloc = false;
+    tc->pendingReallocOldp = 0;
+    tc->pendingReallocSz = 0;
+    tc->pendingReallocCallerIp = 0;
+}*/
+static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
+    ThreadCtx* tc = SafeCTX(tid, "AfterReallocTLS");
+    if (!tc || !tc->hasPendingRealloc) return;
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterReallocTLS tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)ret,
+                (void*)tc->pendingReallocOldp,
+                tc->pendingReallocSz,
+                (void*)tc->pendingReallocCallerIp);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    AfterRealloc(ret, tc->pendingReallocOldp, tc->pendingReallocSz, tc->pendingReallocCallerIp);
+
     tc->hasPendingRealloc = false;
     tc->pendingReallocOldp = 0;
     tc->pendingReallocSz = 0;
@@ -1737,6 +1945,13 @@ static VOID AfterMremapTLS(THREADID tid, ADDRINT ret) {
 static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     if (!ret ) return;      //|| sz == 0
     THREADID tid = PIN_ThreadId();
+    ThreadCtx* tc = SafeCTX(tid, "AfterMalloc");
+
+    // Αν το malloc γίνεται εσωτερικά μέσα από realloc replacement,
+    // μην το γράψεις σαν ξεχωριστό heap:malloc event
+    if (tc && tc->inRealloc > 0) {
+        return;
+    }
     //real size
     //size_t bytes = NormalizeAllocSize((void*)ret, sz);
     size_t bytes = sz;   // requested only
@@ -1804,19 +2019,66 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
 static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     //if (!ret || n == 0 || sz == 0) return;
     //size_t bytes = n * sz;
-    if (!ret) return;
+
+    THREADID tid = PIN_ThreadId();
+
+    if (!ret) {
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[DBG] AfterCalloc NULLRET tid=%u n=%zu sz=%zu caller=%p\n",
+                    (unsigned)tid,
+                    n, sz,
+                    (void*)caller_ip);
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterCalloc ENTER tid=%u ret=%p n=%zu sz=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)ret,
+                n, sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 
     size_t bytes = 0;
     if (n != 0 && sz != 0) {
         if (n > (std::numeric_limits<size_t>::max() / sz)) {
+            PIN_GetLock(&g_events_lock, tid);
+            if (g_logf) {
+                fprintf(g_logf,
+                        "[DBG] AfterCalloc OVERFLOW tid=%u n=%zu sz=%zu caller=%p\n",
+                        (unsigned)tid,
+                        n, sz,
+                        (void*)caller_ip);
+                fflush(g_logf);
+            }
+            PIN_ReleaseLock(&g_events_lock);
             return; // overflow -> μην κάνεις update
         }
         bytes = n * sz;
     } else {
         bytes = 0; // calloc(0, x) ή calloc(x,0) -> bytes 0 αλλά ptr μπορεί να είναι non-null
     }
-    //bytes = NormalizeAllocSize((void*)ret, bytes);
-    THREADID tid = PIN_ThreadId();
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterCalloc BYTES tid=%u bytes=%zu n=%zu sz=%zu ret=%p\n",
+                (unsigned)tid,
+                bytes,
+                n, sz,
+                (void*)ret);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 
     // caller source location
     std::string srcFile;
@@ -1824,14 +2086,33 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
     const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
 
-    // image name + offset (NEW)
+    // image name + offset
     std::string imgName;
     ADDRINT imgOff = 0;
     GetImgFromIp(caller_ip, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterCalloc INSERT tid=%u ret=%p bytes=%zu caller=%p src=%s:%d img=%s+0x%lx\n",
+                (unsigned)tid,
+                (void*)ret,
+                bytes,
+                (void*)caller_ip,
+                srcFileC,
+                (int)srcLine,
+                imgC,
+                (unsigned long)imgOff);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = bytes; r.tag = "heap:calloc";
+    Region r;
+    r.start = ret;
+    r.size = bytes;
+    r.tag = "heap:calloc";
     r.alloc_file = srcFileC;
     r.alloc_line = srcLine;
     g_regions[ret] = r;
@@ -1839,7 +2120,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
 
     PIN_GetLock(&g_events_lock, tid);
 
-    // trace (new clean format)
+    // trace
     PrintAlloc(tid,
         (ADDRINT)ret,
         bytes,
@@ -1851,7 +2132,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
         caller_ip
     );
 
-    // eventsf (keep old format if you want)
+    // eventsf
     if (eventsf) {
         fprintf(eventsf,
             "alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -1865,7 +2146,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     PIN_ReleaseLock(&g_events_lock);
 }
 
-static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
+/*static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
     AFUNPTR orig,
     size_t n, size_t sz, ADDRINT caller_ip)
 {
@@ -1886,10 +2167,72 @@ AfterCalloc((ADDRINT)ret, n, sz, caller_ip);
 
 if (tc) tc->inCalloc--;
 return ret;
+}*/
+
+// debug msg for Calloc_Replacement
+static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
+    AFUNPTR orig,
+    size_t n, size_t sz, ADDRINT caller_ip)
+{
+    VOID* ret = nullptr;
+    ThreadCtx* tc = SafeCTX(tid, "Calloc_Replacement");
+    if (tc) tc->inCalloc++;
+
+    //debug msg
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] Calloc_Replacement ENTER tid=%u n=%zu sz=%zu caller=%p orig=%p\n",
+                (unsigned)tid,
+                n, sz,
+                (void*)caller_ip,
+                (void*)orig);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    PIN_CallApplicationFunction(
+        ctxt, tid, CALLINGSTD_DEFAULT,
+        orig, nullptr,
+        PIN_PARG(void*), &ret,
+        PIN_PARG(size_t), n,
+        PIN_PARG(size_t), sz,
+        PIN_PARG_END()
+    );
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] Calloc_Replacement AFTER tid=%u ret=%p n=%zu sz=%zu caller=%p\n",
+                (unsigned)tid,
+                ret,
+                n, sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    AfterCalloc((ADDRINT)ret, n, sz, caller_ip);
+
+    if (tc) tc->inCalloc--;
+    return ret;
 }
 
 static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
     THREADID tid = PIN_ThreadId();
+    // debug msg
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterRealloc ENTER tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)ret,
+                (void*)oldp,
+                sz,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
 
     // caller source location (same for both free(old) + alloc(new))
     std::string srcFile;
@@ -2035,6 +2378,28 @@ static bool FindRegionWithOff(ADDRINT a, Region &out, size_t &off)
         }
     }
     PIN_ReleaseLock(&g_regions_lock);
+    return found;
+}
+
+static bool FindStackRegionWithOff(THREADID tid, ADDRINT a, Region &out, size_t &off)
+{
+    bool found = false;
+
+    PIN_GetLock(&g_stack_lock, tid);
+
+    auto it = g_stack_regions.find(tid);
+    if (it != g_stack_regions.end()) {
+        const Region &r = it->second;
+        ADDRINT end = r.start + (ADDRINT)r.size;
+
+        if (end >= r.start && a >= r.start && a < end) {
+            out = r;
+            off = (size_t)(a - r.start);
+            found = true;
+        }
+    }
+
+    PIN_ReleaseLock(&g_stack_lock);
     return found;
 }
 
@@ -2190,8 +2555,21 @@ static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, s
 
 // ---------------- mmap/munmap/mremap hooks (with caller pc) ----------------
 
-static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
+/*static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 {
+    //Debug msg
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterMmap ENTER tid=%u ret=%p length=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)ret,
+                length,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
     if (!ret || ret == (ADDRINT)-1 || length == 0) return;
     THREADID tid = PIN_ThreadId();
 
@@ -2236,6 +2614,95 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
                     caller_ip
                 );
         //fflush(tracef);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}*/
+static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
+{
+    THREADID tid = PIN_ThreadId();
+
+    if (!ret || ret == (ADDRINT)-1 || length == 0) {
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[DBG] AfterMmap SKIP tid=%u ret=%p length=%zu caller=%p\n",
+                    (unsigned)tid,
+                    (void*)ret,
+                    length,
+                    (void*)caller_ip);
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+        return;
+    }
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterMmap ENTER tid=%u ret=%p length=%zu caller=%p\n",
+                (unsigned)tid,
+                (void*)ret,
+                length,
+                (void*)caller_ip);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    // caller source location
+    std::string srcFile;
+    INT32 srcLine = 0, srcCol = 0;
+    GetSrcFromIp(caller_ip, srcFile, srcLine, srcCol);
+    const char* srcFileC = srcFile.empty() ? "?" : srcFile.c_str();
+
+    // image name + offset
+    std::string imgName;
+    ADDRINT imgOff = 0;
+    GetImgFromIp(caller_ip, imgName, imgOff);
+    const char* imgC = imgName.empty() ? "?" : imgName.c_str();
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[DBG] AfterMmap INSERT tid=%u ret=%p length=%zu caller=%p src=%s:%d img=%s+0x%lx\n",
+                (unsigned)tid,
+                (void*)ret,
+                length,
+                (void*)caller_ip,
+                srcFileC,
+                (int)srcLine,
+                imgC,
+                (unsigned long)imgOff);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
+    PIN_GetLock(&g_regions_lock, tid);
+    Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    r.alloc_file = srcFileC;
+    r.alloc_line = srcLine;
+    g_regions[ret] = r;
+    PIN_ReleaseLock(&g_regions_lock);
+
+    PIN_GetLock(&g_events_lock, tid);
+    if (eventsf) {
+        fprintf(eventsf,
+                "alloc start=%p size=%zu tag=mmap site=%s:%d img=%s+0x%lx pc=%p\n",
+                (void*)ret, length,
+                srcFileC, (int)srcLine,
+                imgC, (unsigned long)imgOff,
+                (void*)caller_ip);
+        fflush(eventsf);
+    }
+    if (tracef) {
+        PrintAlloc(tid,
+                   (ADDRINT)ret,
+                   length,
+                   "mmap",
+                   srcFileC,
+                   (int)srcLine,
+                   imgC,
+                   (unsigned long)imgOff,
+                   caller_ip);
     }
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -2667,6 +3134,99 @@ static VOID HookMemcachedThreadRoles(IMG img)
     PIN_ReleaseLock(&g_events_lock);
 }
 
+// Helper gia ta global variables sto main executable
+// Κρατάμε μόνο τις writable global sections (.data, .bss) για να έχουμε καλύτερη κάλυψη και λιγότερο θόρυβο.
+static VOID TrackMainExecutableGlobals(IMG img)
+{
+    if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+
+    THREADID tid = PIN_ThreadId();
+
+    for (SEC sec = IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec)) {
+        std::string sname = SEC_Name(sec);
+
+        // κράτα μόνο writable global sections
+        if (sname != ".data" && sname != ".bss")
+            continue;
+
+        ADDRINT start = SEC_Address(sec);
+        size_t size = (size_t)SEC_Size(sec);
+
+        if (start == 0 || size == 0)
+            continue;
+
+        Region r;
+        r.start = start;
+        r.size = size;
+        r.tag = (sname == ".data") ? "global:data" : "global:bss";
+        r.alloc_file = IMG_Name(img);
+        r.alloc_line = 0;
+
+        bool overlapFound = false;
+        Region ov;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        overlapFound = OverlapsLiveRegion_Locked(r.start, r.size, ov);
+        if (!overlapFound) {
+            g_regions[r.start] = r;
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            if (!overlapFound) {
+                fprintf(g_logf,
+                        "[GLOBAL_REGION] tag=%s start=%p size=%zu img=%s sec=%s\n",
+                        r.tag.c_str(),
+                        (void*)r.start,
+                        r.size,
+                        IMG_Name(img).c_str(),
+                        sname.c_str());
+            } else {
+                fprintf(g_logf,
+                        "[GLOBAL_REGION_OVERLAP] tag=%s start=%p size=%zu overlap_start=%p overlap_size=%zu overlap_tag=%s img=%s sec=%s\n",
+                        r.tag.c_str(),
+                        (void*)r.start,
+                        r.size,
+                        (void*)ov.start,
+                        ov.size,
+                        ov.tag.c_str(),
+                        IMG_Name(img).c_str(),
+                        sname.c_str());
+            }
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}
+
+//debug msg
+static VOID DebugLogSymbol(IMG img, const char* kind, const char* sym, RTN r, const char* extra = "")
+{
+    PIN_GetLock(&g_events_lock, 0);
+    if (g_logf) {
+        if (RTN_Valid(r)) {
+            fprintf(g_logf,
+                    "[FOUND] kind=%s sym=%s addr=%p img=%s %s\n",
+                    kind,
+                    sym,
+                    (void*)RTN_Address(r),
+                    IMG_Name(img).c_str(),
+                    extra ? extra : "");
+        } else {
+            fprintf(g_logf,
+                    "[MISS ] kind=%s sym=%s img=%s %s\n",
+                    kind,
+                    sym,
+                    IMG_Name(img).c_str(),
+                    extra ? extra : "");
+        }
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+}
+
+
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
 static VOID HookLibcAllocators(IMG img) {
     if (!KnobUseLibcHooks.Value()) return;
@@ -2678,6 +3238,31 @@ static VOID HookLibcAllocators(IMG img) {
     //if (imgName.find("libc.so") == string::npos) return;
 
     const string imgName = IMG_Name(img);
+    // DEBUG: τύπωσε όλα τα RTNs που μοιάζουν με realloc
+    for (SEC s = IMG_SecHead(img); SEC_Valid(s); s = SEC_Next(s)) {
+        for (RTN r = SEC_RtnHead(s); RTN_Valid(r); r = RTN_Next(r)) {
+            std::string raw = RTN_Name(r);
+            if (raw.empty()) continue;
+
+            std::string base = BaseSym(raw);
+
+            if (raw.find("realloc") != std::string::npos ||
+                base.find("realloc") != std::string::npos) {
+                PIN_GetLock(&g_events_lock, 0);
+                if (g_logf) {
+                    fprintf(g_logf,
+                            "[REALLOC_RTN] raw=%s base=%s img=%s addr=%p plt=%d\n",
+                            raw.c_str(),
+                            base.c_str(),
+                            imgName.c_str(),
+                            (void*)RTN_Address(r),
+                            IsPltStub(raw) ? 1 : 0);
+                    fflush(g_logf);
+                }
+                PIN_ReleaseLock(&g_events_lock);
+            }
+        }
+    }
     //if (imgName.find("libc.so") == string::npos) return;
     //if (imgName.find("/pin/") != string::npos) return;
     //if (imgName.find("ld-linux") != string::npos) return;
@@ -2694,6 +3279,17 @@ static VOID HookLibcAllocators(IMG img) {
      //if (!(is_libc || is_jemalloc || is_tcmalloc)) return;
      InitAllocatorProtosOnce();
  
+    // summary ton candidate symbols gia debugging - DEBUG
+    PIN_GetLock(&g_events_lock, 0);
+    if (g_logf) {
+        fprintf(g_logf,
+                "[HOOK_SCAN_BEGIN] img=%s is_libc=%d is_jemalloc=%d is_tcmalloc=%d is_ld=%d\n",
+                imgName.c_str(),
+                (int)is_libc, (int)is_jemalloc, (int)is_tcmalloc, (int)is_ld);
+        fflush(g_logf);
+    }
+    PIN_ReleaseLock(&g_events_lock);
+
 
     auto LogHook = [&](const char* what) {
         PIN_GetLock(&g_events_lock, 0);
@@ -2702,7 +3298,7 @@ static VOID HookLibcAllocators(IMG img) {
     };
 
 
-    auto ReplaceCalloc = [&](const char* sym) {
+    /*auto ReplaceCalloc = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -2723,6 +3319,89 @@ static VOID HookLibcAllocators(IMG img) {
         );
     
         //RTN_Close(r);
+        //BumpInstalledSymbol(sym); //Symbols_29/3
+
+        LogHook(sym);
+        return true;
+    };*/
+
+    auto ReplaceCalloc = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        DebugLogSymbol(img, "calloc-replace-candidate", sym, r);
+    
+        if (!RTN_Valid(r)) return false;
+    
+        if (!TryMarkHooked(r)) {
+            PIN_GetLock(&g_events_lock, 0);
+            if (g_logf) {
+                fprintf(g_logf,
+                        "[SKIP_ALREADY_HOOKED] kind=calloc-replace sym=%s addr=%p img=%s\n",
+                        sym,
+                        (void*)RTN_Address(r),
+                        IMG_Name(img).c_str());
+                fflush(g_logf);
+            }
+            PIN_ReleaseLock(&g_events_lock);
+            return false;
+        }
+    
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[TRY_REPLACE] kind=calloc sym=%s addr=%p img=%s\n",
+                    sym,
+                    (void*)RTN_Address(r),
+                    IMG_Name(img).c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    
+        g_origCalloc = RTN_ReplaceSignature(
+            r, AFUNPTR(Calloc_Replacement),
+            IARG_PROTOTYPE, g_pCalloc,
+            IARG_CONTEXT,
+            IARG_THREAD_ID,
+            IARG_ORIG_FUNCPTR,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+            IARG_RETURN_IP,
+            IARG_END
+        );
+    
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[REPLACED] kind=calloc sym=%s addr=%p img=%s orig=%p\n",
+                    sym,
+                    (void*)RTN_Address(r),
+                    IMG_Name(img).c_str(),
+                    (void*)g_origCalloc);
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    
+        LogHook(sym);
+        return true;
+    };
+
+    auto ReplaceRealloc = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        if (!RTN_Valid(r)) return false;
+        if (!TryMarkHooked(r)) return false;
+
+        g_origRealloc = RTN_ReplaceSignature(
+            r, AFUNPTR(Realloc_Replacement),
+            IARG_PROTOTYPE, g_pRealloc,
+            IARG_CONTEXT,
+            IARG_THREAD_ID,
+            IARG_ORIG_FUNCPTR,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // oldp
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // size
+            IARG_RETURN_IP,
+            IARG_END
+        );
+
+        //BumpInstalledSymbol(sym);
         LogHook(sym);
         return true;
     };
@@ -2748,6 +3427,7 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_END);
     
         RTN_Close(r);
+        //BumpInstalledSymbol(sym); //Symbols_29/3
         LogHook(sym);
         return true;
     };
@@ -2764,12 +3444,13 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_RETURN_IP,
             IARG_END);
         RTN_Close(r);
+        //BumpInstalledSymbol(sym);
         LogHook(sym);
         return true;
     };
     
 
-    auto HookCallocLikeTLS = [&](const char* sym) {
+    /*auto HookCallocLikeTLS = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
         if (!RTN_Valid(r)) return false;
         if (!TryMarkHooked(r)) return false;
@@ -2780,6 +3461,56 @@ static VOID HookLibcAllocators(IMG img) {
             IARG_THREAD_ID,
             IARG_FUNCARG_ENTRYPOINT_VALUE, 0,   // n
             IARG_FUNCARG_ENTRYPOINT_VALUE, 1,   // size
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterCallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+    
+        RTN_Close(r);
+        LogHook(sym);
+        return true;
+    };*/
+
+    auto HookCallocLikeTLS = [&](const char* sym) {
+        RTN r = RTN_FindByName(img, sym);
+        DebugLogSymbol(img, "calloc-tls-candidate", sym, r);
+    
+        if (!RTN_Valid(r)) return false;
+    
+        if (!TryMarkHooked(r)) {
+            PIN_GetLock(&g_events_lock, 0);
+            if (g_logf) {
+                fprintf(g_logf,
+                        "[SKIP_ALREADY_HOOKED] kind=calloc-tls sym=%s addr=%p img=%s\n",
+                        sym,
+                        (void*)RTN_Address(r),
+                        IMG_Name(img).c_str());
+                fflush(g_logf);
+            }
+            PIN_ReleaseLock(&g_events_lock);
+            return false;
+        }
+    
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[TRY_HOOK] kind=calloc-tls sym=%s addr=%p img=%s\n",
+                    sym,
+                    (void*)RTN_Address(r),
+                    IMG_Name(img).c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    
+        RTN_Open(r);
+    
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeCallocTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
             IARG_RETURN_IP,
             IARG_END);
     
@@ -2936,105 +3667,129 @@ static VOID HookLibcAllocators(IMG img) {
 
         // ---------------- Deterministic hooks (with PROTOTYPE) ----------------
 
-// malloc aliases
-for (const char* sym : {
-    "malloc", "__libc_malloc", "__GI___libc_malloc",
-    "__GI_malloc"
-}) {
-    //HookAfterMallocLike(sym);
-    HookMallocLike(sym);
-}
-
-// free aliases
-for (const char* sym : {
-    "free", "__libc_free", "__GI___libc_free",
-    "cfree", "__libc_cfree",
-    "__GI_free"
-}) {
-    HookBeforeFreeLike(sym);
-}
-
-
-// calloc: κάνε replace (όχι TLS BEFORE/AFTER)
-bool replaced = false;
-
-// Πρώτα προσπάθησε τα πιο “σωστά”/συχνά
-for (const char* sym : {
-    "__libc_calloc",
-    "__GI___libc_calloc",
-    "calloc",
-    "__GI_calloc"
-}) {
-    if (ReplaceCalloc(sym)) { replaced = true; break; }
-}
-
-if (!replaced) {
-    // προαιρετικό log ότι δεν βρέθηκε calloc symbol
-    PIN_GetLock(&g_events_lock, 0);
-    if (g_logf) {
-        fprintf(g_logf, "[WARN] Δεν βρέθηκε calloc για replace μέσα στο %s\n", imgName.c_str());
-        fflush(g_logf);
+    // malloc aliases
+    for (const char* sym : {
+        "malloc", "__libc_malloc", "__GI___libc_malloc",
+        "__GI_malloc"
+    }) {
+        //HookAfterMallocLike(sym);
+        HookMallocLike(sym);
     }
-    PIN_ReleaseLock(&g_events_lock);
-}
 
-// realloc aliases
-for (const char* sym : {
-    "realloc", "__libc_realloc", "__GI___libc_realloc",
-    "__GI_realloc"
-}) {
-    HookReallocLikeTLS(sym);
-}
+    // free aliases
+    for (const char* sym : {
+        "free", "__libc_free", "__GI___libc_free",
+        "cfree", "__libc_cfree",
+        "__GI_free"
+    }) {
+        HookBeforeFreeLike(sym);
+    }
 
-// reallocarray aliases
-for (const char* sym : {
-    "reallocarray", "__libc_reallocarray", "__GI___libc_reallocarray"
-}) {
-    HookReallocarrayLikeTLS(sym);
-}
 
-// aligned_alloc / memalign / valloc / pvalloc
-for (const char* sym : {"aligned_alloc", "__GI_aligned_alloc"}) {
-    HookAfterAlignedAllocLike(sym);
-}
-for (const char* sym : {"memalign", "__GI_memalign"}) {
-    HookAfterMemalignLike(sym);
-}
-for (const char* sym : {"valloc", "__GI_valloc"}) {
-    HookAfterVallocLike(sym);
-}
-for (const char* sym : {"pvalloc", "__GI_pvalloc"}) {
-    HookAfterPvallocLike(sym);
-}
+    // calloc: κάνε replace (όχι TLS BEFORE/AFTER)
+    bool replaced = false;
 
-// posix_memalign
-for (const char* sym : {"posix_memalign", "__GI_posix_memalign"}) {
-    HookAfterPosixMemalignLike(sym);
-}
+    // Πρώτα προσπάθησε τα πιο “σωστά”/συχνά
+    for (const char* sym : {
+        "__libc_calloc",
+        "__GI___libc_calloc",
+        "calloc",
+        "__GI_calloc"
+    }) {
+        if (ReplaceCalloc(sym)) { replaced = true; break; }
+    }
 
-// ---------------- jemalloc explicit symbols ----------------
-for (const char* sym : { "je_malloc" }) {
-    HookMallocLike(sym);
-}
-for (const char* sym : { "je_free" }) {
-    HookBeforeFreeLike(sym);
-}
-for (const char* sym : { "je_calloc" }) {
-    HookCallocLikeTLS(sym);
-}
-for (const char* sym : { "je_realloc" }) {
-    HookReallocLikeTLS(sym);
-}
-for (const char* sym : { "je_reallocarray" }) {
-    HookReallocarrayLikeTLS(sym);
-}
+    if (!replaced) {
+        // προαιρετικό log ότι δεν βρέθηκε calloc symbol
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf, "[WARN] Δεν βρέθηκε calloc για replace μέσα στο %s\n", imgName.c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
 
-  
-    // ---------------- mmap/munmap/mremap hooks ----------------
-{
+    // realloc aliases
+    /*for (const char* sym : {
+        "realloc", "__libc_realloc", "__GI___libc_realloc",
+        "__GI_realloc"
+    }) {
+        HookReallocLikeTLS(sym);
+    }*/
+
+    // realloc aliases -> κάνε replace, όχι BEFORE/AFTER TLS
+    bool replaced_realloc = false;
+
+    for (const char* sym : {
+        "__libc_realloc",
+        "__GI___libc_realloc",
+        "realloc",
+        "__GI_realloc"
+    }) {
+        if (ReplaceRealloc(sym)) {
+            replaced_realloc = true;
+            break;
+        }
+    }
+
+    if (!replaced_realloc) {
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf, "[WARN] Δεν βρέθηκε realloc για replace μέσα στο %s\n", imgName.c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+
+    // reallocarray aliases
+    for (const char* sym : {
+        "reallocarray", "__libc_reallocarray", "__GI___libc_reallocarray"
+    }) {
+        HookReallocarrayLikeTLS(sym);
+    }
+
+    // aligned_alloc / memalign / valloc / pvalloc
+    for (const char* sym : {"aligned_alloc", "__GI_aligned_alloc"}) {
+        HookAfterAlignedAllocLike(sym);
+    }
+    for (const char* sym : {"memalign", "__GI_memalign"}) {
+        HookAfterMemalignLike(sym);
+    }
+    for (const char* sym : {"valloc", "__GI_valloc"}) {
+        HookAfterVallocLike(sym);
+    }
+    for (const char* sym : {"pvalloc", "__GI_pvalloc"}) {
+        HookAfterPvallocLike(sym);
+    }
+
+    // posix_memalign
+    for (const char* sym : {"posix_memalign", "__GI_posix_memalign"}) {
+        HookAfterPosixMemalignLike(sym);
+    }
+
+    // ---------------- jemalloc explicit symbols ----------------
+    for (const char* sym : { "je_malloc" }) {
+        HookMallocLike(sym);
+    }
+    for (const char* sym : { "je_free" }) {
+        HookBeforeFreeLike(sym);
+    }
+    for (const char* sym : { "je_calloc" }) {
+        HookCallocLikeTLS(sym);
+    }
+    for (const char* sym : { "je_realloc" }) {
+        HookReallocLikeTLS(sym);
+    }
+    for (const char* sym : { "je_reallocarray" }) {
+        HookReallocarrayLikeTLS(sym);
+    }
+
+    
+        // ---------------- mmap/munmap/mremap hooks ----------------
+    {
     // mmap variants
     //for (const char* sym : {"mmap", "mmap64", "__mmap"}) {
-    for (const char* sym : {"mmap", "mmap64", "__mmap", "__mmap64", "__GI___mmap", "__GI___mmap64"}) {
+    /*for (const char* sym : {"mmap", "mmap64", "__mmap", "__mmap64", "__GI___mmap", "__GI___mmap64"}) {
         RTN r = RTN_FindByName(img, sym);
         if (RTN_Valid(r) && TryMarkHooked(r)) {
             RTN_Open(r);
@@ -3052,6 +3807,52 @@ for (const char* sym : { "je_reallocarray" }) {
             RTN_Close(r);
             LogHook(sym);
         }
+    }*/
+
+    for (const char* sym : {"mmap", "mmap64", "__mmap", "__mmap64", "__GI___mmap", "__GI___mmap64"}) {
+        RTN r = RTN_FindByName(img, sym);
+        DebugLogSymbol(img, "mmap-candidate", sym, r);
+    
+        if (!RTN_Valid(r)) continue;
+    
+        if (!TryMarkHooked(r)) {
+            PIN_GetLock(&g_events_lock, 0);
+            if (g_logf) {
+                fprintf(g_logf,
+                        "[SKIP_ALREADY_HOOKED] kind=mmap sym=%s addr=%p img=%s\n",
+                        sym,
+                        (void*)RTN_Address(r),
+                        IMG_Name(img).c_str());
+                fflush(g_logf);
+            }
+            PIN_ReleaseLock(&g_events_lock);
+            continue;
+        }
+    
+        PIN_GetLock(&g_events_lock, 0);
+        if (g_logf) {
+            fprintf(g_logf,
+                    "[TRY_HOOK] kind=mmap sym=%s addr=%p img=%s\n",
+                    sym,
+                    (void*)RTN_Address(r),
+                    IMG_Name(img).c_str());
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    
+        RTN_Open(r);
+        RTN_InsertCall(r, IPOINT_BEFORE, AFUNPTR(BeforeMmapTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+            IARG_RETURN_IP,
+            IARG_END);
+    
+        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMmapTLS),
+            IARG_THREAD_ID,
+            IARG_FUNCRET_EXITPOINT_VALUE,
+            IARG_END);
+        RTN_Close(r);
+        LogHook(sym);
     }
 
     // munmap variants
@@ -3092,47 +3893,55 @@ RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMunmapTLS),
     IARG_RETURN_IP,
     IARG_END);
 
-RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMremapTLS),
-    IARG_THREAD_ID,
-    IARG_FUNCRET_EXITPOINT_VALUE,
-    IARG_END);
+    RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMremapTLS),
+        IARG_THREAD_ID,
+        IARG_FUNCRET_EXITPOINT_VALUE,
+        IARG_END);
+                RTN_Close(r);
+                LogHook(sym);
+            }
+        }
+    }
+
+    // strdup aliases
+    for (const char* sym : { "strdup", "__strdup", "__GI___strdup" }) {
+        RTN r = RTN_FindByName(img, sym);
+        if (RTN_Valid(r) && TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrdup),
+                IARG_FUNCRET_EXITPOINT_VALUE,          // ret
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
+                IARG_RETURN_IP,
+                IARG_END);
             RTN_Close(r);
             LogHook(sym);
         }
     }
-}
 
-// strdup aliases
-for (const char* sym : { "strdup", "__strdup", "__GI___strdup" }) {
-    RTN r = RTN_FindByName(img, sym);
-    if (RTN_Valid(r) && TryMarkHooked(r)) {
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrdup),
-            IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
+    // strndup aliases
+    for (const char* sym : { "strndup", "__strndup", "__GI___strndup" }) {
+        RTN r = RTN_FindByName(img, sym);
+        if (RTN_Valid(r) && TryMarkHooked(r)) {
+            RTN_Open(r);
+            RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrndup),
+                IARG_FUNCRET_EXITPOINT_VALUE,          // ret
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
+                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // size_t n
+                IARG_RETURN_IP,
+                IARG_END);
+            RTN_Close(r);
+            LogHook(sym);
+        }
     }
-}
 
-// strndup aliases
-for (const char* sym : { "strndup", "__strndup", "__GI___strndup" }) {
-    RTN r = RTN_FindByName(img, sym);
-    if (RTN_Valid(r) && TryMarkHooked(r)) {
-        RTN_Open(r);
-        RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterStrndup),
-            IARG_FUNCRET_EXITPOINT_VALUE,          // ret
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 0,      // const char* s
-            IARG_FUNCARG_ENTRYPOINT_VALUE, 1,      // size_t n
-            IARG_RETURN_IP,
-            IARG_END);
-        RTN_Close(r);
-        LogHook(sym);
+
+    //debug
+    PIN_GetLock(&g_events_lock, 0);
+    if (g_logf) {
+        fprintf(g_logf, "[HOOK_SCAN_END] img=%s\n", imgName.c_str());
+        fflush(g_logf);
     }
-}
-
+    PIN_ReleaseLock(&g_events_lock);
 
 }
 
@@ -3142,6 +3951,8 @@ static VOID ImageLoad(IMG img, VOID*) {
     HookDummySites(img);       // your __memtrace_* if present
     HookLibcAllocators(img);   // optional libc hooks (knob)
     HookMemcachedThreadRoles(img); // worker role labeling
+    TrackMainExecutableGlobals(img);    // track globals in main executable
+
 }
 
 // ----------------------- Thread lifecycle ------------------------
@@ -3153,7 +3964,7 @@ static VOID ImageLoad(IMG img, VOID*) {
     PIN_SetThreadData(g_tls_key, tc, tid);
 }*/
 // Vazw sto ThreadStart to os_tid kai το role, και logarw sto thread start. 
-static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
+static VOID ThreadStart(THREADID tid, CONTEXT* ctxt, INT32, VOID*) {
     ThreadCtx* tc = new ThreadCtx();
     tc->owner_tid = tid;
     tc->os_tid = PIN_GetTid();
@@ -3168,6 +3979,40 @@ static VOID ThreadStart(THREADID tid, CONTEXT*, INT32, VOID*) {
         fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
+
+        // Approximate per-thread stack region
+        ADDRINT sp = 0;
+
+        #if defined(TARGET_IA32E)
+            sp = PIN_GetContextReg(ctxt, REG_RSP);
+        #else
+            sp = PIN_GetContextReg(ctxt, REG_ESP);
+        #endif
+        
+            const size_t kApproxStackSize = 8 * 1024 * 1024; // 8MB
+        
+            Region sr;
+            sr.start = (sp > kApproxStackSize) ? (sp - kApproxStackSize) : 0;
+            sr.size  = (sp > kApproxStackSize) ? kApproxStackSize : (size_t)sp;
+            sr.tag   = "stack";
+            sr.alloc_file = "STACK";
+            sr.alloc_line = 0;
+        
+            PIN_GetLock(&g_stack_lock, tid);
+            g_stack_regions[tid] = sr;
+            PIN_ReleaseLock(&g_stack_lock);
+        
+            PIN_GetLock(&g_events_lock, tid);
+            if (g_logf) {
+                fprintf(g_logf,
+                        "[STACK_INIT] T%u stack_start=%p stack_size=%zu sp=%p\n",
+                        (unsigned)tid,
+                        (void*)sr.start,
+                        sr.size,
+                        (void*)sp);
+                fflush(g_logf);
+            }
+            PIN_ReleaseLock(&g_events_lock);
 }
 
 static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
@@ -3199,6 +4044,12 @@ static VOID ThreadFini(THREADID tid, const CONTEXT*, INT32, VOID*) {
         }
 
 PIN_ReleaseLock(&g_events_lock);
+
+        // Clean up stack region for this thread
+        PIN_GetLock(&g_stack_lock, tid);
+        g_stack_regions.erase(tid);
+        PIN_ReleaseLock(&g_stack_lock);
+
         delete tc;
         PIN_SetThreadData(g_tls_key, nullptr, tid);
     }
@@ -3243,9 +4094,11 @@ int main(int argc, char* argv[]) {
     if (PIN_Init(argc, argv)) return 1;
 
     PIN_InitLock(&g_regions_lock);
+    PIN_InitLock(&g_stack_lock);
     PIN_InitLock(&g_events_lock);
     PIN_InitLock(&g_hook_lock);
     PIN_InitLock(&g_src_cache_lock);
+    //PIN_InitLock(&g_stats_lock);
 
     g_tls_key = PIN_CreateThreadDataKey(nullptr);
 
