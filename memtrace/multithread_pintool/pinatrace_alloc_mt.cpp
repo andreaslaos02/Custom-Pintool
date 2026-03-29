@@ -3136,7 +3136,7 @@ static VOID HookMemcachedThreadRoles(IMG img)
 
 // Helper gia ta global variables sto main executable
 // Κρατάμε μόνο τις writable global sections (.data, .bss) για να έχουμε καλύτερη κάλυψη και λιγότερο θόρυβο.
-static VOID TrackMainExecutableGlobals(IMG img)
+/*static VOID TrackMainExecutableGlobals(IMG img)
 {
     if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
 
@@ -3191,6 +3191,60 @@ static VOID TrackMainExecutableGlobals(IMG img)
                         (void*)ov.start,
                         ov.size,
                         ov.tag.c_str(),
+                        IMG_Name(img).c_str(),
+                        sname.c_str());
+            }
+            fflush(g_logf);
+        }
+        PIN_ReleaseLock(&g_events_lock);
+    }
+}*/
+
+static VOID TrackMainExecutableGlobals(IMG img)
+{
+    if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+
+    THREADID tid = PIN_ThreadId();
+
+    for (SEC sec = IMG_SecHead(img); SEC_Valid(sec); sec = SEC_Next(sec)) {
+
+        // skip executable sections (.text)
+        if (SEC_IsExecutable(sec))
+            continue;
+
+        ADDRINT start = SEC_Address(sec);
+        size_t size = (size_t)SEC_Size(sec);
+
+        if (start == 0 || size == 0)
+            continue;
+
+        std::string sname = SEC_Name(sec);
+
+        Region r;
+        r.start = start;
+        r.size = size;
+        r.tag = "global:" + sname;
+        r.alloc_file = IMG_Name(img);
+        r.alloc_line = 0;
+
+        bool overlapFound = false;
+        Region ov;
+
+        PIN_GetLock(&g_regions_lock, tid);
+        overlapFound = OverlapsLiveRegion_Locked(r.start, r.size, ov);
+        if (!overlapFound) {
+            g_regions[r.start] = r;
+        }
+        PIN_ReleaseLock(&g_regions_lock);
+
+        PIN_GetLock(&g_events_lock, tid);
+        if (g_logf) {
+            if (!overlapFound) {
+                fprintf(g_logf,
+                        "[GLOBAL_REGION] tag=%s start=%p size=%zu img=%s sec=%s\n",
+                        r.tag.c_str(),
+                        (void*)r.start,
+                        r.size,
                         IMG_Name(img).c_str(),
                         sname.c_str());
             }
