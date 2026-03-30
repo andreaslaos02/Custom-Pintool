@@ -198,7 +198,7 @@ $PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_all
 single thread:
 taskset -c 0 "$PIN_ROOT/pin"   -t "$PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so"   -use_libc_hooks 1 -src_debug 0  -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u "$USER"
 
-$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 1 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
+$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 1 -main_exe_only 0 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
 
 Terminal 2:
 
@@ -206,14 +206,42 @@ cd ~/memcache-perf
 
 ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 1.0 --binary --loadonly
 ./mcperf -s 127.0.0.1 -T 1 -c 1 -r 2000 -u 1.0 --binary --loadonly
-./mcperf -s 127.0.0.1 -T 1 -c 1 -r 20000 -u 1.0 --binary --loadonly   --keycache_reuse=1 --keycache_regen=100 --keyorder=uniform:20000
+./mcperf -s 127.0.0.1 -T 1 -c 1 -r 200000 -u 1.0 --binary --loadonly   --keycache_reuse=1 --keycache_regen=100 --keyorder=uniform:200000
+./mcperf -s 127.0.0.1 --binary --loadonly \
+  -r 100000 --keycache_reuse=1 --keycache_regen=100\
+  -K 30 -V 200 \
+  --keyorder=uniform:2000
 
 pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }
 pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -r 20000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }
-pid=$(pgrep -n -x memcached) && {   kill -USR2 "$pid";   ./mcperf -s 127.0.0.1 -T 1 -c 1 -r 20000 -u 0.0 --binary --noload     --keycache_reuse=1 --keycache_regen=100 --keyorder=uniform:20000;   kill -USR2 "$pid"; }
+pid=$(pgrep -n -x memcached) && {   kill -USR2 "$pid";   ./mcperf -s 127.0.0.1 -T 1 -c 1 -r 200000 -u 0.0 --binary --noload     --keycache_reuse=1 --keycache_regen=100 --keyorder=uniform:200000;   kill -USR2 "$pid"; }
+pid=$(pgrep -n -x memcached) && {
+  kill -USR2 "$pid"
+  ./mcperf -s 127.0.0.1 --binary --noload --keycache_reuse=1 --keycache_regen=100\
+    -T 4 -c 4 -d 4 \
+    -q 20000 -t 10 \
+    -u 0.02 \
+    -i exponential \
+    -r 100000 \
+    --keyorder=uniform:100000
+  kill -USR2 "$pid"
+}
 
 
+pid=$(pgrep -n -x memcached) && {
+  kill -USR2 "$pid"
 
+  ./mcperf -s 127.0.0.1 --binary --noload --keycache_reuse=1 --keycache_regen=100\
+    -T 2 -c 8 -d 4 \
+    -q 3 \
+    -t 360 \
+    -u 0.02 \
+    -i exponential \
+    -r 2000 \
+    --keyorder=uniform:2000
+
+  kill -USR2 "$pid"
+}
 
 
 

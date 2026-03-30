@@ -38,6 +38,10 @@ KNOB<BOOL> KnobTraceUntracked(KNOB_MODE_WRITEONCE, "pintool",
     "trace_untracked", "0",
     "Also log load/store accesses that do not belong to any tracked region.");
 
+KNOB<BOOL> KnobMainExeOnly(KNOB_MODE_WRITEONCE, "pintool",
+    "main_exe_only", "1",
+    "Trace memory accesses only from the main executable.");
+
 
     
 // --------------------------- Region map --------------------------
@@ -1135,7 +1139,7 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     PIN_ReleaseLock(&g_events_lock);
 }
 
-static BOOL ShouldInstrumentIns(INS ins) {
+/*static BOOL ShouldInstrumentIns(INS ins) {
 
     // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
     IMG img = IMG_FindByAddress(INS_Address(ins));
@@ -1143,6 +1147,20 @@ static BOOL ShouldInstrumentIns(INS ins) {
 
     // Κάνε trace ΜΟΝΟ το main executable (π.χ. ds_demo, memcached)
     return IMG_IsMainExecutable(img);
+}*/
+
+static BOOL ShouldInstrumentIns(INS ins) {
+
+    // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
+    IMG img = IMG_FindByAddress(INS_Address(ins));
+    if (!IMG_Valid(img)) return FALSE;
+
+    // Αν το knob είναι ON, κράτα μόνο το main executable
+    if (KnobMainExeOnly.Value())
+        return IMG_IsMainExecutable(img);
+
+    // Αλλιώς κράτα όλα τα images
+    return TRUE;
 }
 
 // ---------------- Instruction instrumentation --------------------
@@ -3136,7 +3154,7 @@ static VOID HookMemcachedThreadRoles(IMG img)
 
 // Helper gia ta global variables sto main executable
 // Κρατάμε μόνο τις writable global sections (.data, .bss) για να έχουμε καλύτερη κάλυψη και λιγότερο θόρυβο.
-/*static VOID TrackMainExecutableGlobals(IMG img)
+/*static VOID TrackImageGlobals(IMG img)
 {
     if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
 
@@ -3200,9 +3218,10 @@ static VOID HookMemcachedThreadRoles(IMG img)
     }
 }*/
 
-static VOID TrackMainExecutableGlobals(IMG img)
+static VOID TrackImageGlobals(IMG img)
 {
-    if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+    //if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+    if (!IMG_Valid(img)) return;
 
     THREADID tid = PIN_ThreadId();
 
@@ -4005,7 +4024,7 @@ static VOID ImageLoad(IMG img, VOID*) {
     HookDummySites(img);       // your __memtrace_* if present
     HookLibcAllocators(img);   // optional libc hooks (knob)
     HookMemcachedThreadRoles(img); // worker role labeling
-    TrackMainExecutableGlobals(img);    // track globals in main executable
+    TrackImageGlobals(img);    // track globals in main executable
 
 }
 
