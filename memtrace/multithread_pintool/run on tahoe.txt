@@ -408,4 +408,5 @@ rm -f \
 Script gia na trexei polla experiments taftoxrona
 -------------------------------------------------------------------------------------------------------
 
-master: python3 /home/alaos002/Simulator/Experiments/scripts/master_script.py
+master: 
+python3 /home/alaos002/Simulator/Experiments/scripts/master_script.py

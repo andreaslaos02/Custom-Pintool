@@ -42,6 +42,9 @@ KNOB<BOOL> KnobMainExeOnly(KNOB_MODE_WRITEONCE, "pintool",
     "main_exe_only", "1",
     "Trace memory accesses only from the main executable.");
 
+KNOB<BOOL> KnobTraceStack(KNOB_MODE_WRITEONCE, "pintool",
+    "trace_stack", "1",
+    "Also log load/store accesses that belong to tracked stack regions.");
 
     
 // --------------------------- Region map --------------------------
@@ -928,7 +931,13 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     size_t off = 0;
     bool found = FindRegionWithOff(a, snap, off);
     //if (!found && !KnobTraceUntracked.Value()) return;
-    if (!found) {
+    /*if (!found) {
+        found = FindStackRegionWithOff(tid, a, snap, off);
+    }
+
+    if (!found && !KnobTraceUntracked.Value()) return;*/
+    // Μόνο αν το knob trace_stack είναι ενεργό, ψάξε και στο stack
+    if (!found && KnobTraceStack.Value()) {
         found = FindStackRegionWithOff(tid, a, snap, off);
     }
 
@@ -1073,12 +1082,17 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     size_t off = 0;
     bool found = FindRegionWithOff(a, snap, off);
     //if (!found && !KnobTraceUntracked.Value()) return;
-    if (!found) {
+    /*if (!found) {
+        found = FindStackRegionWithOff(tid, a, snap, off);
+    }
+
+    if (!found && !KnobTraceUntracked.Value()) return;*/
+    // Μόνο αν το knob trace_stack είναι ενεργό, ψάξε και στο stack
+    if (!found && KnobTraceStack.Value()) {
         found = FindStackRegionWithOff(tid, a, snap, off);
     }
 
     if (!found && !KnobTraceUntracked.Value()) return;
-
 
     if (bytes == 0) bytes = 1;
 
