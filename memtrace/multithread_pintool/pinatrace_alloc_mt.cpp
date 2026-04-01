@@ -46,6 +46,10 @@ KNOB<BOOL> KnobTraceStack(KNOB_MODE_WRITEONCE, "pintool",
     "trace_stack", "1",
     "Also log load/store accesses that belong to tracked stack regions.");
 
+KNOB<BOOL> KnobTraceGlobals(KNOB_MODE_WRITEONCE, "pintool",
+    "trace_globals", "1",
+    "Also track/load-store log accesses that belong to global image sections (.data, .bss, .got, etc.).");
+
     
 // --------------------------- Region map --------------------------
 struct Region {
@@ -3235,6 +3239,7 @@ static VOID HookMemcachedThreadRoles(IMG img)
 static VOID TrackImageGlobals(IMG img)
 {
     //if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+    if (!KnobTraceGlobals.Value()) return;
     if (!IMG_Valid(img)) return;
 
     THREADID tid = PIN_ThreadId();

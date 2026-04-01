@@ -1,15 +1,13 @@
-alloc start=0x7f04a8fd5000 size=8192 tag=mmap site=./elf/dl-minimal-malloc.c:59 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7f04bc306471
-alloc start=0x7f04a8e35000 size=62884 tag=mmap site=./elf/dl-misc.c:49 img=/lib64/ld-linux-x86-64.so.2+0xd685 pc=0x7f04bc306685
-alloc start=0x7f04a8a99000 size=2264656 tag=mmap site=./elf/./dl-map-segments.h:103 img=/lib64/ld-linux-x86-64.so.2+0x8f1c pc=0x7f04bc301f1c
-alloc start=0x7f04a8ac1000 size=1658880 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f04bc302099
-alloc start=0x7f04a8c56000 size=360448 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f04bc302099
-alloc start=0x7f04a8caf000 size=24576 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f04bc302099
-alloc start=0x7f04a8cb5000 size=52816 tag=mmap site=./elf/./dl-map-segments.h:190 img=/lib64/ld-linux-x86-64.so.2+0x9da5 pc=0x7f04bc302da5
-alloc start=0x7f04a8993000 size=12288 tag=mmap site=./elf/dl-minimal-malloc.c:59 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7f04bc306471
-free  start=0x7f04a8e35000 size=62884 tag=mmap site=./elf/dl-cache.c:541 img=/lib64/ld-linux-x86-64.so.2+0x17300 pc=0x7f04bc310300
-alloc start=0x5573c63ce2a0 size=32768 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:85 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x16d1 pc=0x5573bb6cb6d1
-alloc start=0x5573c63d62b0 size=65536 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:93 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x1713 pc=0x5573bb6cb713
-alloc start=0x5573c63e62c0 size=1024 tag=heap:malloc site=./libio/filedoalloc.c:101 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7f04a8b17ba4
-free  start=0x5573c63d62b0 size=65536 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:166 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x1b1c pc=0x5573bb6cbb1c
-free  start=0x5573c63ce2a0 size=32768 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:167 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x1b28 pc=0x5573bb6cbb28
+alloc start=0x7f19a07e9000 size=8192 tag=mmap site=./elf/dl-minimal-malloc.c:59 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7f19b3b18471
+alloc start=0x7f19a0642000 size=62884 tag=mmap site=./elf/dl-misc.c:49 img=/lib64/ld-linux-x86-64.so.2+0xd685 pc=0x7f19b3b18685
+alloc start=0x7f19a02a4000 size=2264656 tag=mmap site=./elf/./dl-map-segments.h:103 img=/lib64/ld-linux-x86-64.so.2+0x8f1c pc=0x7f19b3b13f1c
+alloc start=0x7f19a02cc000 size=1658880 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f19b3b14099
+alloc start=0x7f19a0461000 size=360448 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f19b3b14099
+alloc start=0x7f19a04ba000 size=24576 tag=mmap site=./elf/./dl-map-segments.h:140 img=/lib64/ld-linux-x86-64.so.2+0x9099 pc=0x7f19b3b14099
+alloc start=0x7f19a04c0000 size=52816 tag=mmap site=./elf/./dl-map-segments.h:190 img=/lib64/ld-linux-x86-64.so.2+0x9da5 pc=0x7f19b3b14da5
+alloc start=0x7f19a0180000 size=12288 tag=mmap site=./elf/dl-minimal-malloc.c:59 img=/lib64/ld-linux-x86-64.so.2+0xd471 pc=0x7f19b3b18471
+free  start=0x7f19a0642000 size=62884 tag=mmap site=./elf/dl-cache.c:541 img=/lib64/ld-linux-x86-64.so.2+0x17300 pc=0x7f19b3b22300
+alloc start=0x559ecb51e2a0 size=4096 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:85 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x16d1 pc=0x559eab90f6d1
+alloc start=0x559ecb51f2b0 size=1024 tag=heap:malloc site=./libio/filedoalloc.c:101 img=/lib/x86_64-linux-gnu/libc.so.6+0x7eba4 pc=0x7f19a0322ba4
+free  start=0x559ecb51e2a0 size=4096 tag=heap:malloc site=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest.c:167 img=/home/alaos002/repos/pintools/memtrace/multithread_pintool/array_cache_unittest+0x1b28 pc=0x559eab90fb28
 #eof
