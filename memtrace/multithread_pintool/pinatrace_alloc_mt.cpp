@@ -3238,9 +3238,10 @@ static VOID HookMemcachedThreadRoles(IMG img)
 
 static VOID TrackImageGlobals(IMG img)
 {
-    //if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
+    if (!IMG_Valid(img) || !IMG_IsMainExecutable(img)) return;
     if (!KnobTraceGlobals.Value()) return;
-    if (!IMG_Valid(img)) return;
+    //if (!IMG_Valid(img)) return;
+    //if (!IMG_IsMainExecutable(img)) return;
 
     THREADID tid = PIN_ThreadId();
 

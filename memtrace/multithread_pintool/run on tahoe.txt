@@ -198,7 +198,7 @@ $PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_all
 single thread:
 taskset -c 0 "$PIN_ROOT/pin"   -t "$PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so"   -use_libc_hooks 1 -src_debug 0  -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u "$USER"
 
-$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 1 -main_exe_only 0 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
+$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 1 -main_exe_only 0 -trace_stack 1 -trace_globals 1 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
 
 Terminal 2:
 
@@ -211,6 +211,16 @@ cd ~/memcache-perf
   -r 100000 --keycache_reuse=1 --keycache_regen=100\
   -K 30 -V 200 \
   --keyorder=uniform:2000
+
+./mcperf -s 127.0.0.1 --binary --loadonly \
+  -r 2000 \
+  -K 30 \
+  -V 200 \
+  --keycache_capacity=2000 \
+  --keycache_reuse=1 \
+  --keyorder=uniform:2000 \
+  --keycache_regen=100
+
 
 pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -t 2 -r 2000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }
 pid=$(pgrep -n -x memcached) && { kill -USR2 "$pid"; ./mcperf -s 127.0.0.1 -T 1 -c 1 -r 20000 -u 0.0 --binary --noload; kill -USR2 "$pid"; }
@@ -243,6 +253,28 @@ pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 }
 
+
+pid=$(pgrep -n -x memcached) && {
+  kill -USR2 "$pid"
+
+  ./mcperf -s 127.0.0.1 --binary --noload \
+  -r 2000 \
+  -K 30 \
+  -V 200 \
+  -u 0.05 \
+  -T 1 \
+  -c 4 \
+  -d 4 \
+  -q 400 \
+  -t 5 \
+  -i exponential \
+  --keycache_capacity=2000 \
+  --keycache_reuse=1 \
+  --keyorder=uniform:2000 \
+  --keycache_regen=100
+
+  kill -USR2 "$pid"
+}
 
 
 SIMULATOR
