@@ -212,6 +212,7 @@ cd ~/memcache-perf
   -K 30 -V 200 \
   --keyorder=uniform:2000
 
+// FINAL GENERATOR LOADONLY
 ./mcperf -s 127.0.0.1 --binary --loadonly \
   -r 2000 \
   -K 30 \
@@ -219,6 +220,16 @@ cd ~/memcache-perf
   --keycache_capacity=2000 \
   --keycache_reuse=1 \
   --keyorder=uniform:2000 \
+  --keycache_regen=100
+
+// TESTING WITH 1 RECORD
+./mcperf -s 127.0.0.1 --binary --loadonly \
+  -r 1 \
+  -K 30 \
+  -V 200 \
+  --keycache_capacity=1 \
+  --keycache_reuse=1 \
+  --keyorder=uniform:1 \
   --keycache_regen=100
 
 
@@ -257,7 +268,7 @@ pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 }
 
-
+// FINAL GENERATOR NOLOAD
 pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 
@@ -280,6 +291,28 @@ pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 }
 
+// TESTING WITH 1 RECORD
+pid=$(pgrep -n -x memcached) && {
+  kill -USR2 "$pid"
+
+  ./mcperf -s 127.0.0.1 --binary --noload \
+  -r 1 \
+  -K 30 \
+  -V 200 \
+  -u 0.05 \
+  -T 1 \
+  -c 4 \
+  -d 4 \
+  -q 400 \
+  -t 5 \
+  -i exponential \
+  --keycache_capacity=1 \
+  --keycache_reuse=1 \
+  --keyorder=uniform:1 \
+  --keycache_regen=100
+
+  kill -USR2 "$pid"
+}
 
 SIMULATOR
 

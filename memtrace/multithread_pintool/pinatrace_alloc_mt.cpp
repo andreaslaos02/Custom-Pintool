@@ -50,7 +50,11 @@ KNOB<BOOL> KnobTraceGlobals(KNOB_MODE_WRITEONCE, "pintool",
     "trace_globals", "1",
     "Also track/load-store log accesses that belong to global image sections (.data, .bss, .got, etc.).");
 
-    
+KNOB<BOOL> KnobWorkerOnly(KNOB_MODE_WRITEONCE, "pintool",
+    "worker_only", "0",
+    "Trace memory accesses only for threads marked as WORKER.");
+
+
 // --------------------------- Region map --------------------------
 struct Region {
     ADDRINT start;  //arxiki diefthinsi
@@ -82,7 +86,7 @@ static PIN_LOCK g_stack_lock;    // protects g_stack_regions
 
 // -------------------------- Output files -------------------------
 static FILE* g_logf    = nullptr;          // pintool.log (hooks summary)
-static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
+//static FILE* eventsf = nullptr;          // pinatrace.events (alloc/free only, όπως πριν)
 static FILE* tracef  = nullptr;          // pinatrace.out (ΕΝΙΑΙΟ: alloc/free + loads/stores)
 
 static volatile BOOL g_trace_memops = FALSE;   // load/store OFF by default
@@ -911,10 +915,10 @@ if (g_logf) {
 fprintf(g_logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(g_logf);
 }
-if (tracef) {
+/*if (tracef) {
 fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(tracef);
-}
+}*/
 PIN_ReleaseLock(&g_events_lock);
 
 return FALSE; // do not deliver to application
@@ -931,6 +935,11 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     // Gia na tipono role
     ThreadCtx* tc = SafeCTX(tid, "RecordRead");
     if (!tc) return;
+
+    // tracing only worker
+    if (KnobWorkerOnly.Value() && tc->role != ROLE_WORKER)
+    return;
+
     // debug
     /*if (tc->role == ROLE_WORKER && g_logf) {
         PIN_GetLock(&g_events_lock, tid);
@@ -1104,6 +1113,11 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 
     ThreadCtx* tc = SafeCTX(tid, "RecordWrite");
     if (!tc) return;
+
+    // tracing only worker
+    if (KnobWorkerOnly.Value() && tc->role != ROLE_WORKER)
+    return;
+
     //debug
     /*if (tc->role == ROLE_WORKER && g_logf) {
         PIN_GetLock(&g_events_lock, tid);
@@ -1300,7 +1314,7 @@ if (overlapFound) {
         fflush(tracef);
     }
 
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf,
             "ANOMALY alloc_overlap new_start=%p new_size=%zu new_tag=%s "
             "overlap_start=%p overlap_size=%zu overlap_tag=%s site=%s:%d (%s) pc=%p\n",
@@ -1308,7 +1322,7 @@ if (overlapFound) {
             (void*)ov.start, ov.size, ov.tag.c_str(),
             file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(eventsf);
-    }
+    }*/
 
     if (g_logf) {
         fprintf(g_logf,
@@ -1341,12 +1355,12 @@ if (overlapFound) {
                 ptr, size, tag, file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(g_logf);
     }
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf, "alloc start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                 (void*)r.start, r.size, r.tag.c_str(),
                 file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         fflush(eventsf);
-    }
+    }*/
 
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -1400,7 +1414,7 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
                 known ? "" : " (UNKNOWN)",(void*)caller_ip) ;
         fflush(g_logf);
     }
-    if (eventsf) {
+    /*if (eventsf) {
         if (known) {
             fprintf(eventsf, "free  start=%p size=%zu tag=%s site=%s:%d (%s) pc=%p\n",
                     (void*)snap.start, snap.size, snap.tag.c_str(),
@@ -1411,7 +1425,7 @@ static VOID CallFreeSite(VOID* ptr, const char* type_tag,
                     file ? file : "?", line, func ? func : "?", (void*)caller_ip);
         }
         fflush(eventsf);
-    }
+    }*/
 
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -1574,7 +1588,7 @@ static VOID* Realloc_Replacement(CONTEXT* ctxt, THREADID tid,
     ThreadCtx* tc = SafeCTX(tid, "Realloc_Replacement");
     if (tc) tc->inRealloc++;
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] Realloc_Replacement BEFORE tid=%u oldp=%p sz=%zu caller=%p\n",
@@ -1584,7 +1598,7 @@ static VOID* Realloc_Replacement(CONTEXT* ctxt, THREADID tid,
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     PIN_CallApplicationFunction(
         ctxt, tid, CALLINGSTD_DEFAULT,
@@ -1595,7 +1609,7 @@ static VOID* Realloc_Replacement(CONTEXT* ctxt, THREADID tid,
         PIN_PARG_END()
     );
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] Realloc_Replacement AFTER  tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
@@ -1606,7 +1620,7 @@ static VOID* Realloc_Replacement(CONTEXT* ctxt, THREADID tid,
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     AfterRealloc((ADDRINT)ret, oldp, sz, caller_ip);
     if (tc) tc->inRealloc--;
@@ -1881,7 +1895,7 @@ static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT call
     ThreadCtx* tc = SafeCTX(tid, "BeforeReallocTLS");
     if (!tc) return;
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] BeforeReallocTLS tid=%u oldp=%p sz=%zu caller=%p\n",
@@ -1891,7 +1905,7 @@ static VOID BeforeReallocTLS(THREADID tid, ADDRINT oldp, size_t sz, ADDRINT call
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     tc->hasPendingRealloc = true;
     tc->pendingReallocOldp = oldp;
@@ -1913,7 +1927,7 @@ static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
     ThreadCtx* tc = SafeCTX(tid, "AfterReallocTLS");
     if (!tc || !tc->hasPendingRealloc) return;
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterReallocTLS tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
@@ -1924,7 +1938,7 @@ static VOID AfterReallocTLS(THREADID tid, ADDRINT ret) {
                 (void*)tc->pendingReallocCallerIp);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     AfterRealloc(ret, tc->pendingReallocOldp, tc->pendingReallocSz, tc->pendingReallocCallerIp);
 
@@ -2080,7 +2094,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     );
 
     // eventsf (προαιρετικά: κράτα παλιό format για scripts)
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf,
             "alloc start=%p size=%zu tag=heap:malloc site=%s:%d img=%s+0x%lx pc=%p\n",
             (void*)ret, bytes,
@@ -2088,7 +2102,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
             imgC, (unsigned long)imgOff,
             (void*)caller_ip);
         fflush(eventsf);    
-    }
+    }*/
 
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -2100,7 +2114,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     THREADID tid = PIN_ThreadId();
 
     if (!ret) {
-        PIN_GetLock(&g_events_lock, tid);
+        /*PIN_GetLock(&g_events_lock, tid);
         if (g_logf) {
             fprintf(g_logf,
                     "[DBG] AfterCalloc NULLRET tid=%u n=%zu sz=%zu caller=%p\n",
@@ -2109,11 +2123,11 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
                     (void*)caller_ip);
             fflush(g_logf);
         }
-        PIN_ReleaseLock(&g_events_lock);
+        PIN_ReleaseLock(&g_events_lock);*/
         return;
     }
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterCalloc ENTER tid=%u ret=%p n=%zu sz=%zu caller=%p\n",
@@ -2123,12 +2137,12 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     size_t bytes = 0;
     if (n != 0 && sz != 0) {
         if (n > (std::numeric_limits<size_t>::max() / sz)) {
-            PIN_GetLock(&g_events_lock, tid);
+            /*PIN_GetLock(&g_events_lock, tid);
             if (g_logf) {
                 fprintf(g_logf,
                         "[DBG] AfterCalloc OVERFLOW tid=%u n=%zu sz=%zu caller=%p\n",
@@ -2137,7 +2151,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
                         (void*)caller_ip);
                 fflush(g_logf);
             }
-            PIN_ReleaseLock(&g_events_lock);
+            PIN_ReleaseLock(&g_events_lock);*/
             return; // overflow -> μην κάνεις update
         }
         bytes = n * sz;
@@ -2145,7 +2159,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
         bytes = 0; // calloc(0, x) ή calloc(x,0) -> bytes 0 αλλά ptr μπορεί να είναι non-null
     }
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterCalloc BYTES tid=%u bytes=%zu n=%zu sz=%zu ret=%p\n",
@@ -2155,7 +2169,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
                 (void*)ret);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     // caller source location
     std::string srcFile;
@@ -2169,7 +2183,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     GetImgFromIp(caller_ip, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterCalloc INSERT tid=%u ret=%p bytes=%zu caller=%p src=%s:%d img=%s+0x%lx\n",
@@ -2183,7 +2197,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
                 (unsigned long)imgOff);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     PIN_GetLock(&g_regions_lock, tid);
     Region r;
@@ -2210,7 +2224,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
     );
 
     // eventsf
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf,
             "alloc start=%p size=%zu tag=heap:calloc site=%s:%d img=%s+0x%lx pc=%p\n",
             (void*)ret, bytes,
@@ -2218,7 +2232,7 @@ static VOID AfterCalloc(ADDRINT ret, size_t n, size_t sz, ADDRINT caller_ip) {
             imgC, (unsigned long)imgOff,
             (void*)caller_ip);
         fflush(eventsf);
-    }
+    }*/
 
     PIN_ReleaseLock(&g_events_lock);
 }
@@ -2277,7 +2291,7 @@ static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
         PIN_PARG_END()
     );
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] Calloc_Replacement AFTER tid=%u ret=%p n=%zu sz=%zu caller=%p\n",
@@ -2287,7 +2301,7 @@ static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     AfterCalloc((ADDRINT)ret, n, sz, caller_ip);
 
@@ -2338,7 +2352,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
-        if (eventsf) {
+        /*if (eventsf) {
             if (known) {
                 fprintf(eventsf,
                         "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -2355,7 +2369,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
                         (void*)caller_ip);
             }
             fflush(eventsf);
-        }
+        }*/
         if (tracef) {
             if (known) {
                         PrintFreeKnown(tid,(ADDRINT)snap.start,snap.size,snap.tag.c_str(),        // Type = tag του region
@@ -2388,7 +2402,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
-        if (eventsf) {
+        /*if (eventsf) {
             fprintf(eventsf,
                     "alloc start=%p size=%zu tag=heap:realloc site=%s:%d img=%s+0x%lx pc=%p\n",
                     (void*)ret, bytes,
@@ -2396,7 +2410,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
                     imgC, (unsigned long)imgOff,
                     (void*)caller_ip);
             fflush(eventsf);
-        }
+        }*/
         if (tracef) {
            
             PrintAlloc(tid,
@@ -2532,7 +2546,7 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
 
     PIN_GetLock(&g_events_lock, tid);
 
-    if (eventsf) {
+    /*if (eventsf) {
         if (known_exact) {
             fprintf(eventsf,
                     "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -2556,7 +2570,7 @@ static VOID BeforeFree(ADDRINT p, ADDRINT caller_ip) {
                     (void*)caller_ip);
         }
         fflush(eventsf);
-    }
+    }*/
 //fprintf(tracef, "T%u free  start=%p size=%zu tag=%s site=... pc=%p\n", ...)
     if (tracef) {
         if (known_exact) {
@@ -2699,7 +2713,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
     THREADID tid = PIN_ThreadId();
 
     if (!ret || ret == (ADDRINT)-1 || length == 0) {
-        PIN_GetLock(&g_events_lock, tid);
+        /*PIN_GetLock(&g_events_lock, tid);
         if (g_logf) {
             fprintf(g_logf,
                     "[DBG] AfterMmap SKIP tid=%u ret=%p length=%zu caller=%p\n",
@@ -2709,11 +2723,11 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
                     (void*)caller_ip);
             fflush(g_logf);
         }
-        PIN_ReleaseLock(&g_events_lock);
+        PIN_ReleaseLock(&g_events_lock);*/
         return;
     }
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterMmap ENTER tid=%u ret=%p length=%zu caller=%p\n",
@@ -2723,7 +2737,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     // caller source location
     std::string srcFile;
@@ -2737,7 +2751,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
     GetImgFromIp(caller_ip, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterMmap INSERT tid=%u ret=%p length=%zu caller=%p src=%s:%d img=%s+0x%lx\n",
@@ -2751,7 +2765,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
                 (unsigned long)imgOff);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     PIN_GetLock(&g_regions_lock, tid);
     Region r; r.start = ret; r.size = length; r.tag = "mmap";
@@ -2761,7 +2775,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf,
                 "alloc start=%p size=%zu tag=mmap site=%s:%d img=%s+0x%lx pc=%p\n",
                 (void*)ret, length,
@@ -2769,7 +2783,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
                 imgC, (unsigned long)imgOff,
                 (void*)caller_ip);
         fflush(eventsf);
-    }
+    }*/
     if (tracef) {
         PrintAlloc(tid,
                    (ADDRINT)ret,
@@ -2815,7 +2829,7 @@ static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip
     PIN_ReleaseLock(&g_regions_lock);
 
     PIN_GetLock(&g_events_lock, tid);
-    if (eventsf) {
+    /*if (eventsf) {
         if (known) {
             fprintf(eventsf,
                     "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -2832,7 +2846,7 @@ static VOID AfterMunmap(INT32 rc, ADDRINT addr, size_t length, ADDRINT caller_ip
                     (void*)caller_ip);
         }
         fflush(eventsf);
-    }
+    }*/
     if (tracef) {
         if (known) {
             PrintFreeKnown(tid,
@@ -3073,7 +3087,7 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
-        if (eventsf) {
+        /*if (eventsf) {
             if (known_old) {
                 fprintf(eventsf,
                         "free  start=%p size=%zu tag=%s site=%s:%d img=%s+0x%lx pc=%p\n",
@@ -3090,7 +3104,7 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
                         (void*)caller_ip);
             }
             fflush(eventsf);
-        }
+        }*/
         if (tracef) {
             // trace (new clean format) - free old mapping
             if (known_old) {
@@ -3130,7 +3144,7 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
         PIN_ReleaseLock(&g_regions_lock);
 
         PIN_GetLock(&g_events_lock, tid);
-        if (eventsf) {
+        /*if (eventsf) {
             fprintf(eventsf,
                     "alloc start=%p size=%zu tag=mremap site=%s:%d img=%s+0x%lx pc=%p\n",
                     (void*)ret, newsz,
@@ -3138,7 +3152,7 @@ static VOID AfterMremap(ADDRINT ret, ADDRINT oldp, size_t oldsz, size_t newsz, A
                     imgC, (unsigned long)imgOff,
                     (void*)caller_ip);
             fflush(eventsf);
-        }
+        }*/
         if (tracef) {
             PrintAlloc(tid,
                         (ADDRINT)ret,
@@ -4198,11 +4212,11 @@ static VOID Fini(INT32, VOID*) {
         fclose(tracef);
         tracef = nullptr;
     }
-    if (eventsf) {
+    /*if (eventsf) {
         fprintf(eventsf, "#eof\n");
         fclose(eventsf);
         eventsf = nullptr;
-    }
+    }*/
     if (g_logf) {
         fclose(g_logf);
         g_logf = nullptr;
@@ -4238,18 +4252,18 @@ int main(int argc, char* argv[]) {
 
     // ΝΕΟ: Άνοιξε τα αρχεία ΠΡΙΝ το ParseProcMaps
     g_logf    = fopen("pintool.log", "w");
-    eventsf = fopen("pinatrace.events", "w");
+    //eventsf = fopen("pinatrace.events", "w");
     tracef  = fopen("pinatrace.out", "w");
 
     if (g_logf) {
         fprintf(g_logf, "[START] pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
         fflush(g_logf);
     }
-    if (tracef) {
+    /*if (tracef) {
         //fprintf(tracef, "#TOOL mytool_version=BASELINE_ONLY_ALLOCFREE\n");
         //fprintf(tracef, "#START pid=%d g_trace_memops=%d\n", getpid(), (int)g_trace_memops);
         fflush(tracef);
-    }
+    }*/
 
     // Parse pre-existing allocations (ΜΕΤΑ τα αρχεία)
     //ParseProcMaps();
