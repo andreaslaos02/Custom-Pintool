@@ -63,6 +63,11 @@ struct Region {
     Region() : start(0), size(0), tag("-"), alloc_file("?"), alloc_line(0)  {} //freed(false)
 };
 
+//debug
+//static UINT64 g_ins_debug_count = 0;
+//static PIN_LOCK g_ins_debug_lock;
+
+
 // Global region map (keyed by start)
 static std::map<ADDRINT, Region> g_regions;     //taksinomimeno map kata start
 
@@ -907,7 +912,7 @@ fprintf(g_logf, "[CTRL] SIGUSR2 -> g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(g_logf);
 }
 if (tracef) {
-//fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
+fprintf(tracef, "#CTRL g_trace_memops=%d\n", (int)g_trace_memops);
 fflush(tracef);
 }
 PIN_ReleaseLock(&g_events_lock);
@@ -926,6 +931,24 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     // Gia na tipono role
     ThreadCtx* tc = SafeCTX(tid, "RecordRead");
     if (!tc) return;
+    // debug
+    /*if (tc->role == ROLE_WORKER && g_logf) {
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(g_logf,
+                "[MEMOP_SEEN] kind=%s pin_tid=%u os_tid=%d role=%s ip=%p ea=%p bytes=%u\n",
+                "READ",
+                (unsigned)tid,
+                (int)tc->os_tid,
+                ThreadRoleStr(tc->role),
+                (void*)ipA,
+                (void*)a,
+                bytes);
+        fflush(g_logf);
+        PIN_ReleaseLock(&g_events_lock);
+    }*/
+
+
+    
 
     /*Region snap;
     size_t off = 0;
@@ -1081,6 +1104,24 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 
     ThreadCtx* tc = SafeCTX(tid, "RecordWrite");
     if (!tc) return;
+    //debug
+    /*if (tc->role == ROLE_WORKER && g_logf) {
+        PIN_GetLock(&g_events_lock, tid);
+        fprintf(g_logf,
+                "[MEMOP_SEEN] kind=%s pin_tid=%u os_tid=%d role=%s ip=%p ea=%p bytes=%u\n",
+                "READ",
+                (unsigned)tid,
+                (int)tc->os_tid,
+                ThreadRoleStr(tc->role),
+                (void*)ipA,
+                (void*)a,
+                bytes);
+        fflush(g_logf);
+        PIN_ReleaseLock(&g_events_lock);
+    }*/
+
+
+   
 
     Region snap;
     size_t off = 0;
