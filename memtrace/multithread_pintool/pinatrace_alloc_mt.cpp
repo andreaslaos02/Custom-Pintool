@@ -1829,13 +1829,13 @@ static VOID BeforeCallocTLS(THREADID tid, size_t n, size_t sz, ADDRINT caller_ip
     }
 
     // (προαιρετικό) debug log
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf, "[DBG] calloc PUSH T%u seq=%llu n=%zu sz=%zu top=%d ip=%p\n",
                 (unsigned)tid, (unsigned long long)seq, n, sz, tc->pendingCallocTop, (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 }
 
 static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
@@ -1855,13 +1855,13 @@ static VOID AfterCallocTLS(THREADID tid, ADDRINT ret) {
     }
 
     // (προαιρετικό) debug log
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf, "[DBG] calloc POP  T%u seq=%llu n=%zu sz=%zu top=%d ret=%p\n",
                 (unsigned)tid, (unsigned long long)p.seq, p.n, p.sz, tc->pendingCallocTop, (void*)ret);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     AfterCalloc(ret, p.n, p.sz, p.callerIp);
 }
@@ -2033,7 +2033,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
     //size_t bytes = NormalizeAllocSize((void*)ret, sz);
     size_t bytes = sz;   // requested only
     //debug msg
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         std::string imgName; ADDRINT imgOff = 0;
         GetImgFromIp(caller_ip, imgName, imgOff);
@@ -2042,7 +2042,7 @@ static VOID AfterMalloc(ADDRINT ret, size_t sz, ADDRINT caller_ip) {
                     imgName.c_str(), (unsigned long)imgOff);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
     //end of debug msg
     // caller source location
     std::string srcFile;
@@ -2256,7 +2256,7 @@ static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
     if (tc) tc->inCalloc++;
 
     //debug msg
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] Calloc_Replacement ENTER tid=%u n=%zu sz=%zu caller=%p orig=%p\n",
@@ -2266,7 +2266,7 @@ static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
                 (void*)orig);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     PIN_CallApplicationFunction(
         ctxt, tid, CALLINGSTD_DEFAULT,
@@ -2298,7 +2298,7 @@ static VOID* Calloc_Replacement(CONTEXT* ctxt, THREADID tid,
 static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip) {
     THREADID tid = PIN_ThreadId();
     // debug msg
-    PIN_GetLock(&g_events_lock, tid);
+    /*PIN_GetLock(&g_events_lock, tid);
     if (g_logf) {
         fprintf(g_logf,
                 "[DBG] AfterRealloc ENTER tid=%u ret=%p oldp=%p sz=%zu caller=%p\n",
@@ -2309,7 +2309,7 @@ static VOID AfterRealloc(ADDRINT ret, ADDRINT oldp, size_t sz, ADDRINT caller_ip
                 (void*)caller_ip);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
     // caller source location (same for both free(old) + alloc(new))
     std::string srcFile;
@@ -3335,7 +3335,7 @@ static VOID TrackImageGlobals(IMG img)
 }
 
 //debug msg
-static VOID DebugLogSymbol(IMG img, const char* kind, const char* sym, RTN r, const char* extra = "")
+/*static VOID DebugLogSymbol(IMG img, const char* kind, const char* sym, RTN r, const char* extra = "")
 {
     PIN_GetLock(&g_events_lock, 0);
     if (g_logf) {
@@ -3358,7 +3358,7 @@ static VOID DebugLogSymbol(IMG img, const char* kind, const char* sym, RTN r, co
         fflush(g_logf);
     }
     PIN_ReleaseLock(&g_events_lock);
-}
+}*/
 
 
 //enimerwnoume ta malloc/calloc/realloc/free tis libc an to knob einai energopoihmeno.
@@ -3414,7 +3414,7 @@ static VOID HookLibcAllocators(IMG img) {
      InitAllocatorProtosOnce();
  
     // summary ton candidate symbols gia debugging - DEBUG
-    PIN_GetLock(&g_events_lock, 0);
+    /*PIN_GetLock(&g_events_lock, 0);
     if (g_logf) {
         fprintf(g_logf,
                 "[HOOK_SCAN_BEGIN] img=%s is_libc=%d is_jemalloc=%d is_tcmalloc=%d is_ld=%d\n",
@@ -3422,7 +3422,7 @@ static VOID HookLibcAllocators(IMG img) {
                 (int)is_libc, (int)is_jemalloc, (int)is_tcmalloc, (int)is_ld);
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
 
     auto LogHook = [&](const char* what) {
@@ -3461,7 +3461,7 @@ static VOID HookLibcAllocators(IMG img) {
 
     auto ReplaceCalloc = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
-        DebugLogSymbol(img, "calloc-replace-candidate", sym, r);
+        //DebugLogSymbol(img, "calloc-replace-candidate", sym, r);
     
         if (!RTN_Valid(r)) return false;
     
@@ -3610,7 +3610,7 @@ static VOID HookLibcAllocators(IMG img) {
 
     auto HookCallocLikeTLS = [&](const char* sym) {
         RTN r = RTN_FindByName(img, sym);
-        DebugLogSymbol(img, "calloc-tls-candidate", sym, r);
+        //DebugLogSymbol(img, "calloc-tls-candidate", sym, r);
     
         if (!RTN_Valid(r)) return false;
     
@@ -3945,7 +3945,7 @@ static VOID HookLibcAllocators(IMG img) {
 
     for (const char* sym : {"mmap", "mmap64", "__mmap", "__mmap64", "__GI___mmap", "__GI___mmap64"}) {
         RTN r = RTN_FindByName(img, sym);
-        DebugLogSymbol(img, "mmap-candidate", sym, r);
+        //DebugLogSymbol(img, "mmap-candidate", sym, r);
     
         if (!RTN_Valid(r)) continue;
     
@@ -4070,12 +4070,12 @@ RTN_InsertCall(r, IPOINT_AFTER, AFUNPTR(AfterMunmapTLS),
 
 
     //debug
-    PIN_GetLock(&g_events_lock, 0);
+    /*PIN_GetLock(&g_events_lock, 0);
     if (g_logf) {
         fprintf(g_logf, "[HOOK_SCAN_END] img=%s\n", imgName.c_str());
         fflush(g_logf);
     }
-    PIN_ReleaseLock(&g_events_lock);
+    PIN_ReleaseLock(&g_events_lock);*/
 
 }
 
