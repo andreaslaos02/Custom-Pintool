@@ -13,7 +13,6 @@
 #include <limits>
 #include <cstring>
 //#include <malloc.h>   // malloc_usable_size
-//for ParseProcMaps
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -979,6 +978,9 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 
     if (!found && !KnobTraceUntracked.Value()) return;
 
+    // Φίλτραρε pthread stack regions (mmap από allocatestack.c)
+    if (found && snap.tag == "stack:pthread" && !KnobTraceStack.Value()) return;
+
 
     if (bytes == 0) bytes = 1;
 
@@ -1152,6 +1154,9 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     }
 
     if (!found && !KnobTraceUntracked.Value()) return;
+
+    // Φίλτραρε pthread stack regions (mmap από allocatestack.c)
+    if (found && snap.tag == "stack:pthread" && !KnobTraceStack.Value()) return;
 
     if (bytes == 0) bytes = 1;
 
@@ -2769,6 +2774,7 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 
     PIN_GetLock(&g_regions_lock, tid);
     Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    r.tag = (srcFile.find("allocatestack") != std::string::npos) ? "stack:pthread" : "mmap";    // An egine record katagrafi apo mmap hook gia to stack tou thread.
     r.alloc_file = srcFileC;
     r.alloc_line = srcLine;
     g_regions[ret] = r;
