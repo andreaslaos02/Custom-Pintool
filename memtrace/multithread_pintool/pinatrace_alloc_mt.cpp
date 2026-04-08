@@ -53,6 +53,10 @@ KNOB<BOOL> KnobWorkerOnly(KNOB_MODE_WRITEONCE, "pintool",
     "worker_only", "0",
     "Trace memory accesses only for threads marked as WORKER.");
 
+KNOB<BOOL> KnobTraceLibcMemops(KNOB_MODE_WRITEONCE, "pintool",
+    "trace_libc_memops", "0",
+    "Also trace load/store from libc (memcpy/memset/strcmp) "
+    "but only when accessing a tracked heap region.");
 
 // --------------------------- Region map --------------------------
 struct Region {
@@ -981,6 +985,9 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     // Φίλτραρε pthread stack regions (mmap από allocatestack.c)
     if (found && snap.tag == "stack:pthread" && !KnobTraceStack.Value()) return;
 
+    // Φίλτραρε dynamic linker regions
+    if (found && snap.tag == "mmap:ldlinux") return;
+
 
     if (bytes == 0) bytes = 1;
 
@@ -1158,6 +1165,9 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     // Φίλτραρε pthread stack regions (mmap από allocatestack.c)
     if (found && snap.tag == "stack:pthread" && !KnobTraceStack.Value()) return;
 
+    // Φίλτραρε dynamic linker regions
+    if (found && snap.tag == "mmap:ldlinux") return;
+
     if (bytes == 0) bytes = 1;
 
     std::string imgName;
@@ -1227,7 +1237,7 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     return IMG_IsMainExecutable(img);
 }*/
 
-static BOOL ShouldInstrumentIns(INS ins) {
+/*static BOOL ShouldInstrumentIns(INS ins) {
 
     // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
     IMG img = IMG_FindByAddress(INS_Address(ins));
@@ -1239,6 +1249,37 @@ static BOOL ShouldInstrumentIns(INS ins) {
 
     // Αλλιώς κράτα όλα τα images
     return TRUE;
+}*/
+
+static BOOL ShouldInstrumentIns(INS ins) {
+
+    // Βρίσκουμε σε ποιο image ανήκει η εντολή (exe ή shared lib)
+    IMG img = IMG_FindByAddress(INS_Address(ins));
+    if (!IMG_Valid(img)) return FALSE;
+
+    // Πάντα επιτρέπουμε το main executable
+    if (IMG_IsMainExecutable(img)) return TRUE;
+
+    // Αν το main_exe_only είναι OFF, επιτρέπουμε τα πάντα
+    if (!KnobMainExeOnly.Value()) return TRUE;
+
+    // Αν το trace_libc_memops είναι ON, επιτρέπουμε και τη libc
+    // Οι εντολές της libc θα φιλτραριστούν στο RecordRead/Write
+    // βάσει του αν η διεύθυνση ανήκει σε tracked region
+    /*if (KnobTraceLibcMemops.Value()) {
+        const std::string imgName = IMG_Name(img);
+        if (imgName.find("libc.so") != std::string::npos)
+            return TRUE;
+    }*/
+    if (KnobTraceLibcMemops.Value()) {
+        const std::string imgName = IMG_Name(img);
+        bool is_libc = (imgName.find("libc.so") != std::string::npos);
+        bool is_ld   = (imgName.find("ld-linux") != std::string::npos);
+        if (is_libc && !is_ld)
+            return TRUE;
+    }
+
+    return FALSE;
 }
 
 // ---------------- Instruction instrumentation --------------------
@@ -2773,8 +2814,20 @@ static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
     PIN_ReleaseLock(&g_events_lock);*/
 
     PIN_GetLock(&g_regions_lock, tid);
-    Region r; r.start = ret; r.size = length; r.tag = "mmap";
-    r.tag = (srcFile.find("allocatestack") != std::string::npos) ? "stack:pthread" : "mmap";    // An egine record katagrafi apo mmap hook gia to stack tou thread.
+    //Region r; r.start = ret; r.size = length; r.tag = "mmap";
+    //r.tag = (srcFile.find("allocatestack") != std::string::npos) ? "stack:pthread" : "mmap";    // An egine record katagrafi apo mmap hook gia to stack tou thread.
+
+    //filtering thread stack regions kai ld-linux regions based on caller source file or image name.
+    Region r; r.start = ret; r.size = length;
+    if (srcFile.find("allocatestack") != std::string::npos) {
+        r.tag = "stack:pthread";
+    } else if (srcFile.find("dl-map-segments") != std::string::npos ||
+               imgName.find("ld-linux") != std::string::npos) {
+        r.tag = "mmap:ldlinux";
+    } else {
+        r.tag = "mmap";
+    }
+
     r.alloc_file = srcFileC;
     r.alloc_line = srcLine;
     g_regions[ret] = r;

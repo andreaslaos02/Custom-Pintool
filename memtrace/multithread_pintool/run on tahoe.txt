@@ -198,7 +198,7 @@ $PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_all
 single thread:
 taskset -c 0 "$PIN_ROOT/pin"   -t "$PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so"   -use_libc_hooks 1 -src_debug 0  -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u "$USER"
 
-$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 0 -main_exe_only 1 -trace_stack 0 -trace_globals 0 -worker_only 1 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
+$PIN_ROOT/pin   -t $PIN_ROOT/source/tools/pinatrace_mt/obj-intel64/pinatrace_alloc_mt.so   -use_libc_hooks 1 -src_debug 0 -trace_untracked 0 -main_exe_only 1 -trace_stack 0 -trace_globals 0 -worker_only 1 -trace_libc_memops 1 -- ~/memcached-1.6.14/memcached -t 1 -p 11211 -u $USER
 
 Terminal 2:
 
@@ -214,12 +214,12 @@ cd ~/memcache-perf
 
 // FINAL GENERATOR LOADONLY
 ./mcperf -s 127.0.0.1 --binary --loadonly \
-  -r 2000 \
+  -r 100000 \
   -K 30 \
   -V 200 \
-  --keycache_capacity=2000 \
+  --keycache_capacity=100000 \
   --keycache_reuse=1 \
-  --keyorder=uniform:2000 \
+  --keyorder=uniform:100000 \
   --keycache_regen=100
 
 // TESTING WITH 1 RECORD
@@ -273,7 +273,7 @@ pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 
   ./mcperf -s 127.0.0.1 --binary --noload \
-  -r 2000 \
+  -r 100000 \
   -K 30 \
   -V 200 \
   -u 0.05 \
@@ -281,11 +281,11 @@ pid=$(pgrep -n -x memcached) && {
   -c 4 \
   -d 4 \
   -q 400 \
-  -t 60 \
+  -t 120 \
   -i exponential \
-  --keycache_capacity=2000 \
+  --keycache_capacity=100000 \
   --keycache_reuse=1 \
-  --keyorder=uniform:2000 \
+  --keyorder=uniform:100000 \
   --keycache_regen=100
 
   kill -USR2 "$pid"
