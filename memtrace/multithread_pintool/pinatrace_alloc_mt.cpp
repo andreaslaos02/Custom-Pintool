@@ -117,6 +117,10 @@ struct SrcLoc {
 static std::unordered_map<std::string, SrcLoc> g_src_cache;
 static PIN_LOCK g_src_cache_lock;
 
+// Cache για GetImgFromIp — αποφεύγει PIN_LockClient σε κάθε load/store
+static std::unordered_map<ADDRINT, std::pair<std::string, ADDRINT>> g_img_cache;
+static PIN_LOCK g_img_cache_lock;
+
 static inline std::string MakeSrcCacheKey(const std::string& imgPath, ADDRINT imgOff)
 {
     char buf[64];
@@ -359,6 +363,34 @@ static inline void GetImgFromIp(ADDRINT ip, std::string &imgName, ADDRINT &imgOf
         imgOff  = ip - IMG_LowAddress(img);
     }
     PIN_UnlockClient();
+}
+
+// cached version tis GetImgFromIp pou apofevgei PIN_LockClient se kathe load/store
+static inline void GetImgFromIpCached(ADDRINT ip, std::string &imgName, ADDRINT &imgOff)
+{
+    imgName.clear();
+    imgOff = 0;
+
+    if (ip == 0) return;
+
+    // Ψάξε στην cache πρώτα
+    PIN_GetLock(&g_img_cache_lock, 0);
+    auto it = g_img_cache.find(ip);
+    if (it != g_img_cache.end()) {
+        imgName = it->second.first;
+        imgOff  = it->second.second;
+        PIN_ReleaseLock(&g_img_cache_lock);
+        return;
+    }
+    PIN_ReleaseLock(&g_img_cache_lock);
+
+    // Cache miss: κάνε την ακριβή αναζήτηση
+    GetImgFromIp(ip, imgName, imgOff);
+
+    // Αποθήκευσε στην cache
+    PIN_GetLock(&g_img_cache_lock, 0);
+    g_img_cache[ip] = {imgName, imgOff};
+    PIN_ReleaseLock(&g_img_cache_lock);
 }
 
 static inline bool ResolveSrcWithAddr2line(const std::string& imgPath,
@@ -994,7 +1026,8 @@ static VOID RecordRead(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
     // IMG + offset for the *instruction pointer*
     std::string imgName;
     ADDRINT imgOff = 0;
-    GetImgFromIp(ipA, imgName, imgOff);
+    //GetImgFromIp(ipA, imgName, imgOff);
+    GetImgFromIpCached(ipA, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str(); // ή imgName.c_str() για full path
 /*
     if (off + (size_t)bytes > snap.size) {
@@ -1172,7 +1205,8 @@ static VOID RecordWrite(THREADID tid, VOID* ip, VOID* ea, UINT32 bytes)
 
     std::string imgName;
     ADDRINT imgOff = 0;
-    GetImgFromIp(ipA, imgName, imgOff);
+    //GetImgFromIp(ipA, imgName, imgOff);
+    GetImgFromIpCached(ipA, imgName, imgOff);
     const char* imgC = imgName.empty() ? "?" : imgName.c_str();
 
     PIN_GetLock(&g_events_lock, tid);
@@ -4306,6 +4340,7 @@ int main(int argc, char* argv[]) {
     PIN_InitLock(&g_hook_lock);
     PIN_InitLock(&g_src_cache_lock);
     //PIN_InitLock(&g_stats_lock);
+    PIN_InitLock(&g_img_cache_lock);
 
     g_tls_key = PIN_CreateThreadDataKey(nullptr);
 
