@@ -281,7 +281,7 @@ pid=$(pgrep -n -x memcached) && {
   -c 4 \
   -d 4 \
   -q 400 \
-  -t 5 \
+  -t 60 \
   -i exponential \
   --keycache_capacity=2000 \
   --keycache_reuse=1 \
