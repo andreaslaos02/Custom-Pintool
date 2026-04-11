@@ -214,12 +214,12 @@ cd ~/memcache-perf
 
 // FINAL GENERATOR LOADONLY
 ./mcperf -s 127.0.0.1 --binary --loadonly \
-  -r 100000 \
+  -r 10000 \
   -K 30 \
   -V 200 \
-  --keycache_capacity=100000 \
+  --keycache_capacity=10000 \
   --keycache_reuse=1 \
-  --keyorder=uniform:100000 \
+  --keyorder=uniform:10000 \
   --keycache_regen=100
 
 // TESTING WITH 1 RECORD
@@ -272,20 +272,22 @@ pid=$(pgrep -n -x memcached) && {
 pid=$(pgrep -n -x memcached) && {
   kill -USR2 "$pid"
 
+
+//prepei READONLY to workload opos eipe o volos
   ./mcperf -s 127.0.0.1 --binary --noload \
-  -r 100000 \
+  -r 10000 \
   -K 30 \
   -V 200 \
-  -u 0.05 \
+  -u 0.00 \
   -T 1 \
   -c 4 \
   -d 4 \
   -q 400 \
-  -t 120 \
+  -t 210 \
   -i exponential \
-  --keycache_capacity=100000 \
+  --keycache_capacity=10000 \
   --keycache_reuse=1 \
-  --keyorder=uniform:100000 \
+  --keyorder=uniform:10000 \
   --keycache_regen=100
 
   kill -USR2 "$pid"
