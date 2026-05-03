@@ -2790,7 +2790,7 @@ static VOID AfterPosixMemalign(INT32 rc, ADDRINT memptr_ptr, size_t alignment, s
 }*/
 static VOID AfterMmap(ADDRINT ret, size_t length, ADDRINT caller_ip)
 {
-    THREADID tid = PIN_ThreadId();
+    THREADID tid = PIN_ThreadId(); 
 
     if (!ret || ret == (ADDRINT)-1 || length == 0) {
         /*PIN_GetLock(&g_events_lock, tid);
