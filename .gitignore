@@ -5,6 +5,7 @@
 *.dll
 *.exe
 *.dylib
+*.txt
 
 # Pin generated traces & logs
 *.out

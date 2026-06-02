@@ -1,2 +1,0 @@
-# pintools
-learning pintools
